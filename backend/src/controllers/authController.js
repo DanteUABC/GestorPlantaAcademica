@@ -1,7 +1,7 @@
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { query } = require('../db');
-const { JWT_SECRET } = require('../middleware/auth');
+const { JWT_SECRET, JWT_REFRESH_SECRET } = require('../middleware/auth');
 
 // List available tenants
 async function getTenants(req, res) {
@@ -192,10 +192,173 @@ async function getMe(req, res) {
   }
 }
 
+// -------------------------------------------------------------
+// FASE 1 Y FASE 2 JWT & OAUTH SSO
+// -------------------------------------------------------------
+
+// Callback Post-OAuth: Emite IDENTITY TOKEN
+function oauthCallback(req, res) {
+  // req.user viene inyectado por Passport
+  if (!req.user || !req.user.id) {
+    return res.redirect(`${process.env.FRONTEND_URL || 'http://localhost:3000'}/login?error=oauth_failed`);
+  }
+
+  const identityToken = jwt.sign(
+    { sub: req.user.id, type: 'identity' },
+    JWT_SECRET,
+    { expiresIn: '10m' }
+  );
+
+  // Redirige al frontend pasando el token en la URL de forma efímera
+  const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+  res.redirect(`${frontendUrl}/login?token=${identityToken}`);
+}
+
+// Endpoint: Seleccionar Tenant -> Emite ACCESS TOKEN y REFRESH COOKIE
+async function selectTenant(req, res) {
+  try {
+    let userId = req.user?.sub || req.user?.id;
+
+    // Asume que un middleware previo validó el identityToken en req.headers
+    // O fallback directo verificando Authorization Bearer
+    if (!userId) {
+      const authHeader = req.headers.authorization;
+      if (authHeader && authHeader.startsWith('Bearer ')) {
+        const token = authHeader.split(' ')[1];
+        try {
+          const decoded = jwt.verify(token, JWT_SECRET);
+          userId = decoded.sub || decoded.id;
+        } catch (e) {
+          return res.status(401).json({ error: 'Token de identidad inválido o expirado' });
+        }
+      }
+    }
+
+    if (!userId) {
+      return res.status(401).json({ error: 'No autorizado: Se requiere Identity Token' });
+    }
+
+    const { tenantId } = req.body;
+    if (!tenantId) {
+      return res.status(400).json({ error: 'tenantId es requerido' });
+    }
+
+    // Validar existencia del tenant
+    const tenant = await query.get('SELECT id, name FROM tenants WHERE id = ?', [tenantId]);
+    if (!tenant) {
+      return res.status(404).json({ error: 'Institución (tenant) no encontrada' });
+    }
+
+    // Consultar usuario en base de datos
+    let user = await query.get(
+      `SELECT u.*, r.name as role_name, t.name as tenant_name
+       FROM users u
+       LEFT JOIN roles r ON u.role_id = r.id
+       LEFT JOIN tenants t ON u.tenant_id = t.id
+       WHERE u.id = ?`,
+      [userId]
+    );
+
+    if (!user) {
+      return res.status(404).json({ error: 'Usuario no encontrado' });
+    }
+
+    let roleId = user.role_id;
+    let roleName = user.role_name;
+
+    // Si el usuario no tiene rol o pertenece a otro tenant, asignar rol por defecto
+    if (!roleId || user.tenant_id !== tenantId) {
+      const defaultRole = await query.get('SELECT id, name FROM roles WHERE name = ?', ['Alumno']);
+      roleId = roleId || defaultRole?.id || 'role-student';
+      roleName = roleName || defaultRole?.name || 'Alumno';
+
+      await query.run(
+        'UPDATE users SET tenant_id = ?, role_id = ? WHERE id = ?',
+        [tenantId, roleId, userId]
+      );
+    }
+
+    const accessToken = jwt.sign(
+      { sub: userId, id: userId, tenant_id: tenantId, role_id: roleId, role_name: roleName, type: 'access' },
+      JWT_SECRET,
+      { expiresIn: '15m' }
+    );
+
+    const refreshToken = jwt.sign(
+      { sub: userId, id: userId, tenant_id: tenantId, role_id: roleId, role_name: roleName, type: 'refresh' },
+      JWT_REFRESH_SECRET,
+      { expiresIn: '7d' }
+    );
+
+    // Configuración de cookie HttpOnly contra XSS
+    res.cookie('refresh_token', refreshToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: process.env.NODE_ENV === 'production' ? 'Strict' : 'Lax',
+      maxAge: 7 * 24 * 60 * 60 * 1000
+    });
+
+    res.json({
+      accessToken,
+      user: {
+        id: userId,
+        name: user.name,
+        email: user.email,
+        tenant_id: tenantId,
+        tenant_name: tenant.name,
+        role_id: roleId,
+        role_name: roleName
+      }
+    });
+  } catch (err) {
+    console.error('Error en selectTenant:', err);
+    res.status(500).json({ error: 'Error interno al procesar selección de tenant', details: err.message });
+  }
+}
+
+// Endpoint: Refrescar Token Silenciosamente
+function refreshToken(req, res) {
+  const rfToken = req.cookies?.refresh_token;
+  if (!rfToken) return res.status(401).json({ error: 'No refresh token' });
+
+  jwt.verify(rfToken, JWT_REFRESH_SECRET, (err, decoded) => {
+    if (err) return res.status(403).json({ error: 'Invalid refresh token' });
+
+    // Re-emitimos el token contextual
+    const newAccessToken = jwt.sign(
+      {
+        sub: decoded.sub,
+        id: decoded.sub,
+        tenant_id: decoded.tenant_id,
+        role_id: decoded.role_id,
+        role_name: decoded.role_name,
+        type: 'access'
+      },
+      JWT_SECRET,
+      { expiresIn: '15m' }
+    );
+    res.json({ accessToken: newAccessToken });
+  });
+}
+
+// Endpoint: Logout
+function logout(req, res) {
+  res.clearCookie('refresh_token', {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: process.env.NODE_ENV === 'production' ? 'Strict' : 'Lax'
+  });
+  res.json({ message: 'Sesión finalizada exitosamente' });
+}
+
 module.exports = {
   getTenants,
   getRoles,
   register,
   login,
-  getMe
+  getMe,
+  oauthCallback,
+  selectTenant,
+  refreshToken,
+  logout
 };

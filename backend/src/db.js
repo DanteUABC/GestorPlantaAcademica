@@ -62,19 +62,20 @@ async function initDatabase() {
       FOREIGN KEY (permission_id) REFERENCES permissions(id) ON DELETE CASCADE
     );
 
-    -- Users (Scoped by tenant_id, with role_id)
+    -- Users (Flexible: Soporte nativo para credenciales locales y OAuth SSO)
     CREATE TABLE IF NOT EXISTS users (
       id TEXT PRIMARY KEY,
-      tenant_id TEXT NOT NULL,
+      tenant_id TEXT,
       name TEXT NOT NULL,
       email TEXT NOT NULL,
-      password_hash TEXT NOT NULL,
-      role_id TEXT NOT NULL,
+      password_hash TEXT,
+      role_id TEXT,
       identifier TEXT, -- Matrícula o Nómina docente
+      google_id TEXT UNIQUE,
+      microsoft_id TEXT UNIQUE,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE,
-      FOREIGN KEY (role_id) REFERENCES roles(id),
-      UNIQUE(tenant_id, email)
+      FOREIGN KEY (role_id) REFERENCES roles(id)
     );
 
     -- Subjects (Materias, scoped by tenant_id)
@@ -136,7 +137,25 @@ async function initDatabase() {
     CREATE INDEX IF NOT EXISTS idx_classrooms_tenant ON classrooms(tenant_id);
     CREATE INDEX IF NOT EXISTS idx_schedules_tenant ON schedules(tenant_id);
     CREATE INDEX IF NOT EXISTS idx_enrollments_tenant ON enrollments(tenant_id);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email ON users(email);
+
+    -- Compatibilidad de alias de tabla 'usuarios'
+    CREATE VIEW IF NOT EXISTS usuarios AS SELECT * FROM users;
   `);
+
+  // Migraciones incrementales de columnas OAuth para bases de datos existentes
+  try {
+    const tableInfo = await query.all("PRAGMA table_info(users);");
+    const columnNames = tableInfo.map(c => c.name);
+    if (!columnNames.includes('google_id')) {
+      await query.run('ALTER TABLE users ADD COLUMN google_id TEXT;');
+    }
+    if (!columnNames.includes('microsoft_id')) {
+      await query.run('ALTER TABLE users ADD COLUMN microsoft_id TEXT;');
+    }
+  } catch (migErr) {
+    console.warn('Nota en migración de columnas OAuth:', migErr.message);
+  }
 
   await seedInitialData();
 }

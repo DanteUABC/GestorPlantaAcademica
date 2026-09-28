@@ -78,6 +78,36 @@
         {{ successMessage }}
       </v-alert>
 
+      <!-- SSO OAuth 2.0 Buttons -->
+      <div class="mb-4">
+        <v-btn
+          block
+          variant="outlined"
+          color="red-darken-1"
+          class="text-none mb-2 font-weight-medium"
+          prepend-icon="mdi-google"
+          @click="loginGoogle"
+        >
+          Iniciar sesión con Google
+        </v-btn>
+        <v-btn
+          block
+          variant="outlined"
+          color="blue-darken-2"
+          class="text-none mb-2 font-weight-medium"
+          prepend-icon="mdi-microsoft"
+          @click="loginMicrosoft"
+        >
+          Iniciar sesión con Microsoft
+        </v-btn>
+
+        <div class="d-flex align-center my-3">
+          <v-divider></v-divider>
+          <span class="text-caption text-grey mx-3">O ingresa con credenciales</span>
+          <v-divider></v-divider>
+        </div>
+      </div>
+
       <!-- Tabs between Login and Register -->
       <v-tabs v-model="tab" color="primary" grow class="mb-4">
         <v-tab value="login">Iniciar Sesión</v-tab>
@@ -110,7 +140,7 @@
               density="comfortable"
               prepend-inner-icon="mdi-email-outline"
               class="mb-2"
-              :rules="[v => !!v || 'El correo es requerido']"
+              :rules="[v => !!v || 'El correo es obligatorio']"
             ></v-text-field>
 
             <v-text-field
@@ -121,7 +151,7 @@
               density="comfortable"
               prepend-inner-icon="mdi-lock-outline"
               class="mb-4"
-              :rules="[v => !!v || 'La contraseña es requerida']"
+              :rules="[v => !!v || 'La contraseña es obligatoria']"
             ></v-text-field>
 
             <v-btn
@@ -132,15 +162,15 @@
               class="text-none font-weight-bold"
               :loading="loading"
             >
-              Ingresar al Sistema
+              Iniciar Sesión
             </v-btn>
           </v-form>
         </v-window-item>
 
-        <!-- TAB 2: REGISTRARSE CON PREGUNTA DE ROL Y DATOS BÁSICOS -->
+        <!-- TAB 2: CREAR CUENTA -->
         <v-window-item value="register">
           <v-form @submit.prevent="handleRegister">
-            <!-- Institution -->
+            <!-- Institution Selection or New -->
             <v-select
               v-model="registerForm.tenant_id"
               :items="tenants"
@@ -151,10 +181,8 @@
               density="comfortable"
               prepend-inner-icon="mdi-domain"
               class="mb-2"
-              :rules="[v => !!v || 'Seleccione la institución']"
             ></v-select>
 
-            <!-- Personal Basic Info -->
             <v-text-field
               v-model="registerForm.name"
               label="Nombre Completo"
@@ -167,12 +195,12 @@
 
             <v-text-field
               v-model="registerForm.identifier"
-              label="Matrícula o Nómina Docente"
-              placeholder="Ej: ALU-2026-99 ó DOC-55"
+              label="Matrícula o Nómina"
               variant="outlined"
               density="comfortable"
               prepend-inner-icon="mdi-card-account-details-outline"
               class="mb-2"
+              placeholder="Ej. ALU-2026-99 o DOC-55"
             ></v-text-field>
 
             <v-text-field
@@ -226,15 +254,52 @@
         </v-window-item>
       </v-window>
     </v-card>
+
+    <!-- Modal para Selección de Tenant Post-OAuth (Fase 2 Handshake) -->
+    <v-dialog v-model="showTenantModal" persistent max-width="460">
+      <v-card class="pa-4 rounded-lg">
+        <v-card-title class="text-h6 font-weight-bold text-primary d-flex align-center">
+          <v-icon icon="mdi-shield-check" color="success" class="mr-2"></v-icon>
+          Selecciona tu Institución
+        </v-card-title>
+        <v-card-text>
+          <p class="text-body-2 text-grey-darken-1 mb-4">
+            Autenticación completada. Selecciona la institución educativa a la que deseas acceder:
+          </p>
+          <v-select
+            v-model="selectedTenantId"
+            :items="tenants"
+            item-title="name"
+            item-value="id"
+            label="Institución Educativa (Tenant)"
+            variant="outlined"
+            density="comfortable"
+            prepend-inner-icon="mdi-domain"
+          ></v-select>
+        </v-card-text>
+        <v-card-actions class="justify-end">
+          <v-btn
+            color="primary"
+            variant="flat"
+            :loading="tenantLoading"
+            :disabled="!selectedTenantId"
+            @click="confirmTenantSelection"
+          >
+            Ingresar al Sistema
+          </v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
   </v-container>
 </template>
 
 <script setup>
 import { ref, onMounted } from 'vue';
-import { useRouter } from 'vue-router';
-import { useAuthStore } from '../stores/auth';
+import { useRoute, useRouter } from 'vue-router';
+import { useAuthStore } from '../stores/authStore';
 import api from '../api/client';
 
+const route = useRoute();
 const router = useRouter();
 const authStore = useAuthStore();
 
@@ -244,6 +309,11 @@ const quickLoading = ref('');
 const errorMessage = ref('');
 const successMessage = ref('');
 const tenants = ref([]);
+
+const showTenantModal = ref(false);
+const selectedTenantId = ref('');
+const identityToken = ref('');
+const tenantLoading = ref(false);
 
 const loginForm = ref({
   tenant_id: 'tenant-itc',
@@ -260,18 +330,65 @@ const registerForm = ref({
   role_name: 'Alumno'
 });
 
-onMounted(async () => {
+async function fetchTenants() {
   try {
     const res = await api.get('/auth/tenants');
     tenants.value = res.data;
-    if (tenants.value.length > 0 && !loginForm.value.tenant_id) {
-      loginForm.value.tenant_id = tenants.value[0].id;
-      registerForm.value.tenant_id = tenants.value[0].id;
+    if (tenants.value.length > 0) {
+      if (!loginForm.value.tenant_id) loginForm.value.tenant_id = tenants.value[0].id;
+      if (!registerForm.value.tenant_id) registerForm.value.tenant_id = tenants.value[0].id;
+      if (!selectedTenantId.value) selectedTenantId.value = tenants.value[0].id;
     }
   } catch (err) {
     console.error('Error cargando tenants:', err);
   }
+}
+
+onMounted(async () => {
+  await fetchTenants();
+
+  const tokenUrl = route.query.token;
+  if (tokenUrl) {
+    // El usuario viene de Google/Microsoft con un Identity Token
+    identityToken.value = tokenUrl;
+    showTenantModal.value = true;
+    // Limpiar URL para no dejar el token expuesto
+    router.replace({ query: {} });
+  } else {
+    // Intento de silent refresh en recarga de página (F5)
+    try {
+      await authStore.silentRefresh();
+      navigateByRole(authStore.userRole);
+    } catch (e) {
+      // No hay cookie activa, mostrar formulario de login
+    }
+  }
 });
+
+const loginGoogle = () => {
+  const baseUrl = import.meta.env.VITE_API_URL || '';
+  window.location.href = `${baseUrl}/api/auth/google`;
+};
+
+const loginMicrosoft = () => {
+  const baseUrl = import.meta.env.VITE_API_URL || '';
+  window.location.href = `${baseUrl}/api/auth/microsoft`;
+};
+
+async function confirmTenantSelection() {
+  if (!selectedTenantId.value || !identityToken.value) return;
+  tenantLoading.value = true;
+  errorMessage.value = '';
+  try {
+    const user = await authStore.selectTenant(selectedTenantId.value, identityToken.value);
+    showTenantModal.value = false;
+    navigateByRole(user?.role_name || authStore.userRole);
+  } catch (err) {
+    errorMessage.value = err || 'Error al vincular con la institución';
+  } finally {
+    tenantLoading.value = false;
+  }
+}
 
 async function handleLogin() {
   loading.value = true;

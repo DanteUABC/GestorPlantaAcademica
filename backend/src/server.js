@@ -1,7 +1,9 @@
 const express = require('express');
 const cors = require('cors');
+const cookieParser = require('cookie-parser');
 require('dotenv').config();
 
+const passport = require('./config/passport');
 const { initDatabase } = require('./db');
 const { authenticateJWT } = require('./middleware/auth');
 const { requireRole } = require('./middleware/rbac');
@@ -13,8 +15,13 @@ const scheduleController = require('./controllers/scheduleController');
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-app.use(cors());
+app.use(cors({
+  origin: process.env.FRONTEND_URL || 'http://localhost:3000',
+  credentials: true
+}));
 app.use(express.json());
+app.use(cookieParser());
+app.use(passport.initialize());
 
 // Log requests
 app.use((req, res, next) => {
@@ -29,6 +36,17 @@ app.get('/api/auth/tenants', authController.getTenants);
 app.get('/api/auth/roles', authController.getRoles);
 app.post('/api/auth/register', authController.register);
 app.post('/api/auth/login', authController.login);
+
+// Rutas de OAuth 2.0 y Ciclo de Vida JWT (Fase 1 y Fase 2)
+app.get('/api/auth/google', passport.authenticate('google', { scope: ['profile', 'email'], session: false }));
+app.get('/api/auth/google/callback', passport.authenticate('google', { session: false, failureRedirect: '/login?error=oauth_failed' }), authController.oauthCallback);
+
+app.get('/api/auth/microsoft', passport.authenticate('microsoft', { session: false }));
+app.get('/api/auth/microsoft/callback', passport.authenticate('microsoft', { session: false, failureRedirect: '/login?error=oauth_failed' }), authController.oauthCallback);
+
+app.post('/api/auth/select-tenant', authController.selectTenant);
+app.post('/api/auth/refresh', authController.refreshToken);
+app.post('/api/auth/logout', authController.logout);
 
 // -------------------------------------------------------------
 // RUTAS PROTEGIDAS (Requieren Token JWT y Tenant Scoping)
