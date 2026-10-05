@@ -124,6 +124,34 @@
               Ingresar al Sistema
             </v-btn>
           </v-form>
+
+          <!-- SSO Login Options -->
+          <div class="my-4 d-flex align-center">
+            <v-divider></v-divider>
+            <span class="mx-3 text-caption text-grey">O continúa con SSO Institucional</span>
+            <v-divider></v-divider>
+          </div>
+
+          <div class="d-flex gap-2">
+            <v-btn
+              variant="outlined"
+              color="grey-darken-3"
+              class="flex-grow-1 mr-2 text-none"
+              prepend-icon="mdi-google"
+              href="/api/auth/google"
+            >
+              Google
+            </v-btn>
+            <v-btn
+              variant="outlined"
+              color="blue-darken-2"
+              class="flex-grow-1 text-none"
+              prepend-icon="mdi-microsoft"
+              href="/api/auth/microsoft"
+            >
+              Microsoft
+            </v-btn>
+          </div>
         </v-window-item>
 
         <!-- TAB 2: REGISTRARSE CON PREGUNTA DE ROL Y DATOS BÁSICOS -->
@@ -156,8 +184,8 @@
 
             <v-text-field
               v-model="registerForm.identifier"
-              label="Matrícula o Nómina Docente"
-              placeholder="Ej: ALU-2026-99 ó DOC-55"
+              label="Nómina o Identificador Docente"
+              placeholder="Ej: DOC-101 ó EMP-001"
               variant="outlined"
               density="comfortable"
               prepend-inner-icon="mdi-card-account-details-outline"
@@ -219,11 +247,12 @@
 
 <script setup>
 import { ref, onMounted } from 'vue';
-import { useRouter } from 'vue-router';
-import { useAuthStore } from '../stores/auth';
+import { useRouter, useRoute } from 'vue-router';
+import { useAuthStore } from '../stores/authStore';
 import api from '../api/client';
 
 const router = useRouter();
+const route = useRoute();
 const authStore = useAuthStore();
 
 const tab = ref('login');
@@ -249,6 +278,25 @@ const registerForm = ref({
 });
 
 onMounted(async () => {
+  // Manejar callback de SSO con token en query params
+  if (route.query.token) {
+    authStore._processToken(route.query.token);
+    if (authStore.userRole) {
+      return navigateByRole(authStore.userRole);
+    } else if (authStore.tenantId) {
+      try {
+        await authStore.selectTenant(authStore.tenantId);
+        return navigateByRole(authStore.userRole);
+      } catch (err) {
+        errorMessage.value = 'Error al asignar institución tras SSO';
+      }
+    }
+  }
+
+  if (route.query.error) {
+    errorMessage.value = 'Error durante la autenticación con el proveedor externo';
+  }
+
   try {
     const res = await api.get('/auth/tenants');
     tenants.value = res.data;
@@ -305,11 +353,11 @@ async function demoLogin(role) {
 
 function navigateByRole(role) {
   if (role === 'Coordinador' || role === 'Administrador') {
-    router.push('/coordinador');
+    router.push('/coordinator');
   } else if (role === 'Profesor') {
-    router.push('/profesor');
+    router.push('/teacher');
   } else {
-    router.push('/dashboard');
+    router.push('/unauthorized');
   }
 }
 </script>

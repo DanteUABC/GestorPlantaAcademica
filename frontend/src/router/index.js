@@ -1,45 +1,29 @@
 import { createRouter, createWebHistory } from 'vue-router';
-import { useAuthStore } from '../stores/auth';
-
+import { useAuthStore } from '../stores/authStore';
 import LoginView from '../views/LoginView.vue';
 import CoordinatorView from '../views/CoordinatorView.vue';
 import TeacherView from '../views/TeacherView.vue';
+import UnauthorizedView from '../views/UnauthorizedView.vue';
 
 const routes = [
-  {
-    path: '/login',
-    name: 'Login',
-    component: LoginView,
-    meta: { public: true }
-  },
-  {
-    path: '/',
-    name: 'Home',
-    redirect: '/dashboard'
-  },
-  {
-    path: '/dashboard',
-    name: 'Dashboard',
-    component: {
-      template: '<div>Cargando panel...</div>'
-    }
-  },
-  {
-    path: '/coordinador',
-    name: 'Coordinator',
+  { path: '/login', name: 'Login', component: LoginView },
+  { 
+    path: '/coordinator', 
+    name: 'Coordinator', 
     component: CoordinatorView,
-    meta: { roles: ['Coordinador', 'Administrador'] }
+    meta: { requiresAuth: true, allowedRoles: ['Coordinador', 'Administrador'] }
   },
-  {
-    path: '/profesor',
-    name: 'Teacher',
+  { 
+    path: '/teacher', 
+    name: 'Teacher', 
     component: TeacherView,
-    meta: { roles: ['Profesor', 'Coordinador', 'Administrador'] }
+    meta: { requiresAuth: true, allowedRoles: ['Profesor', 'Coordinador', 'Administrador'] }
   },
-  {
-    path: '/:pathMatch(.*)*',
-    redirect: '/login'
-  }
+  { path: '/unauthorized', name: 'Unauthorized', component: UnauthorizedView },
+  { path: '/coordinador', redirect: '/coordinator' },
+  { path: '/profesor', redirect: '/teacher' },
+  { path: '/', redirect: '/coordinator' },
+  { path: '/:pathMatch(.*)*', redirect: '/login' }
 ];
 
 const router = createRouter({
@@ -47,27 +31,18 @@ const router = createRouter({
   routes
 });
 
-router.beforeEach((to, from, next) => {
+router.beforeEach(async (to, from, next) => {
   const authStore = useAuthStore();
 
-  if (to.meta.public) {
-    if (authStore.isAuthenticated && to.path === '/login') {
-      return next('/dashboard');
+  if (to.meta.requiresAuth) {
+    if (!authStore.isAuthenticated) {
+      const refreshed = await authStore.silentRefresh();
+      if (!refreshed) return next({ name: 'Login' });
     }
-    return next();
-  }
 
-  if (!authStore.isAuthenticated) {
-    return next('/login');
-  }
-
-  if (to.path === '/dashboard') {
-    if (authStore.isCoordinator) return next('/coordinador');
-    if (authStore.isTeacher) return next('/profesor');
-  }
-
-  if (to.meta.roles && !to.meta.roles.includes(authStore.userRole)) {
-    return next('/dashboard');
+    if (to.meta.allowedRoles && !authStore.hasRole(to.meta.allowedRoles)) {
+      return next({ name: 'Unauthorized' });
+    }
   }
 
   next();

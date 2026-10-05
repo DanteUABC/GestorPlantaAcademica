@@ -114,8 +114,8 @@ function getRoleColor(role) {
 async function switchRole(roleName) {
   try {
     await authStore.quickLogin(roleName);
-    if (roleName === 'coordinador') router.push('/coordinador');
-    else if (roleName === 'profesor') router.push('/profesor');
+    if (roleName === 'coordinador') router.push('/coordinator');
+    else if (roleName === 'profesor') router.push('/teacher');
   } catch (err) {
     console.error('Error switching role:', err);
   }

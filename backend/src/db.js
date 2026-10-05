@@ -44,6 +44,7 @@ async function initDatabase() {
     CREATE TABLE IF NOT EXISTS roles (
       id VARCHAR(50) PRIMARY KEY,
       name VARCHAR(100) UNIQUE NOT NULL,
+      nombre VARCHAR(100),
       description TEXT
     );
 
@@ -63,15 +64,17 @@ async function initDatabase() {
       FOREIGN KEY (permission_id) REFERENCES permissions(id) ON DELETE CASCADE
     );
 
-    -- Users (Scoped by tenant_id, with role_id)
+    -- Users (Scoped by tenant_id, with role_id, soporte para OAuth y password_hash opcional)
     CREATE TABLE IF NOT EXISTS users (
       id VARCHAR(50) PRIMARY KEY,
-      tenant_id VARCHAR(50) NOT NULL,
+      tenant_id VARCHAR(50),
       name VARCHAR(255) NOT NULL,
       email VARCHAR(255) NOT NULL,
-      password_hash VARCHAR(255) NOT NULL,
-      role_id VARCHAR(50) NOT NULL,
+      password_hash VARCHAR(255),
+      role_id VARCHAR(50),
       identifier VARCHAR(100),
+      google_id VARCHAR(255) UNIQUE,
+      microsoft_id VARCHAR(255) UNIQUE,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE,
       FOREIGN KEY (role_id) REFERENCES roles(id),
@@ -123,9 +126,28 @@ async function initDatabase() {
     CREATE INDEX IF NOT EXISTS idx_subjects_tenant ON subjects(tenant_id);
     CREATE INDEX IF NOT EXISTS idx_classrooms_tenant ON classrooms(tenant_id);
     CREATE INDEX IF NOT EXISTS idx_schedules_tenant ON schedules(tenant_id);
+    CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
+
+    -- Vistas de compatibilidad RBAC y tablas en español
+    CREATE OR REPLACE VIEW usuarios AS SELECT * FROM users;
+    CREATE OR REPLACE VIEW usuarios_roles AS SELECT id AS usuario_id, tenant_id, role_id AS rol_id FROM users;
   `);
 
+  // Migraciones incrementales sobre PostgreSQL
+  try {
+    await query.exec(`
+      ALTER TABLE roles ADD COLUMN IF NOT EXISTS nombre VARCHAR(100);
+      UPDATE roles SET nombre = name WHERE nombre IS NULL;
+      ALTER TABLE users ALTER COLUMN password_hash DROP NOT NULL;
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS google_id VARCHAR(255) UNIQUE;
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS microsoft_id VARCHAR(255) UNIQUE;
+    `);
+  } catch (migErr) {
+    console.warn('Nota en migraciones incrementales:', migErr.message);
+  }
+
   await seedInitialData();
+  await query.exec('UPDATE roles SET nombre = name WHERE nombre IS NULL;');
 }
 
 async function seedInitialData() {
@@ -139,7 +161,9 @@ async function seedInitialData() {
   for (const r of roles) {
     const existing = await query.get('SELECT id FROM roles WHERE id = ?', [r.id]);
     if (!existing) {
-      await query.run('INSERT INTO roles (id, name, description) VALUES (?, ?, ?)', [r.id, r.name, r.description]);
+      await query.run('INSERT INTO roles (id, name, nombre, description) VALUES (?, ?, ?, ?)', [r.id, r.name, r.name, r.description]);
+    } else {
+      await query.run('UPDATE roles SET nombre = ? WHERE id = ? AND nombre IS NULL', [r.name, r.id]);
     }
   }
 
