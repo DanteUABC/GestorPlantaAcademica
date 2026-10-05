@@ -51,12 +51,6 @@
             subtitle="Consulta de carga horaria"
             @click="switchRole('profesor')"
           ></v-list-item>
-          <v-list-item
-            prepend-icon="mdi-account-school"
-            title="Juan Pérez (Alumno)"
-            subtitle="Inscripción y horario personal"
-            @click="switchRole('alumno')"
-          ></v-list-item>
         </v-list>
       </v-menu>
 
@@ -112,8 +106,6 @@ function getRoleColor(role) {
       return 'purple-accent-3';
     case 'Profesor':
       return 'teal-darken-1';
-    case 'Alumno':
-      return 'amber-darken-2';
     default:
       return 'grey';
   }
@@ -124,7 +116,6 @@ async function switchRole(roleName) {
     await authStore.quickLogin(roleName);
     if (roleName === 'coordinador') router.push('/coordinador');
     else if (roleName === 'profesor') router.push('/profesor');
-    else if (roleName === 'alumno') router.push('/alumno');
   } catch (err) {
     console.error('Error switching role:', err);
   }

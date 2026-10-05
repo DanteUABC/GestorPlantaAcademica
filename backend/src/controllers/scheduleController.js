@@ -138,8 +138,7 @@ async function getCoordinatorSchedules(req, res) {
          t.email as teacher_email,
          cr.id as classroom_id,
          cr.name as classroom_name,
-         cr.building as classroom_building,
-         (SELECT COUNT(*) FROM enrollments e WHERE e.schedule_id = s.id) as enrolled_count
+         cr.building as classroom_building
        FROM schedules s
        JOIN subjects sub ON s.subject_id = sub.id
        JOIN users t ON s.teacher_id = t.id
@@ -182,7 +181,7 @@ async function deleteSchedule(req, res) {
 }
 
 // -------------------------------------------------------------
-// PROFESOR: CONSULTA DE HORARIOS ASIGNADOS Y LISTA DE ALUMNOS
+// PROFESOR: CONSULTA DE HORARIOS ASIGNADOS
 // -------------------------------------------------------------
 
 async function getTeacherSchedules(req, res) {
@@ -198,8 +197,7 @@ async function getTeacherSchedules(req, res) {
          sub.name as subject_name,
          sub.credits as subject_credits,
          cr.name as classroom_name,
-         cr.building as classroom_building,
-         (SELECT COUNT(*) FROM enrollments e WHERE e.schedule_id = s.id) as enrolled_count
+         cr.building as classroom_building
        FROM schedules s
        JOIN subjects sub ON s.subject_id = sub.id
        JOIN classrooms cr ON s.classroom_id = cr.id
@@ -218,230 +216,16 @@ async function getTeacherSchedules(req, res) {
       [req.tenant_id, req.user.id]
     );
 
-    // Adjuntar lista de estudiantes inscritos en cada grupo
-    for (const item of schedules) {
-      const students = await query.all(
-        `SELECT u.id, u.name, u.email, u.identifier, e.enrolled_at
-         FROM enrollments e
-         JOIN users u ON e.student_id = u.id
-         WHERE e.schedule_id = ? AND e.tenant_id = ?
-         ORDER BY u.name ASC`,
-        [item.id, req.tenant_id]
-      );
-      item.students = students;
-    }
-
     res.json(schedules);
   } catch (err) {
     res.status(500).json({ error: 'Error al consultar horarios del profesor', details: err.message });
   }
 }
 
-// -------------------------------------------------------------
-// ALUMNO: CATÁLOGO DE MATERIAS, INSCRIPCIÓN Y MI HORARIO
-// -------------------------------------------------------------
-
-// List all schedules available for enrollment in the tenant
-async function getAvailableSchedules(req, res) {
-  try {
-    const schedules = await query.all(
-      `SELECT
-         s.id,
-         s.day_of_week,
-         s.start_time,
-         s.end_time,
-         s.max_students,
-         sub.id as subject_id,
-         sub.code as subject_code,
-         sub.name as subject_name,
-         sub.credits as subject_credits,
-         t.name as teacher_name,
-         cr.name as classroom_name,
-         cr.building as classroom_building,
-         (SELECT COUNT(*) FROM enrollments e WHERE e.schedule_id = s.id) as enrolled_count,
-         EXISTS(SELECT 1 FROM enrollments e WHERE e.schedule_id = s.id AND e.student_id = ?) as is_enrolled
-       FROM schedules s
-       JOIN subjects sub ON s.subject_id = sub.id
-       JOIN users t ON s.teacher_id = t.id
-       JOIN classrooms cr ON s.classroom_id = cr.id
-       WHERE s.tenant_id = ?
-       ORDER BY sub.name ASC, s.day_of_week ASC, s.start_time ASC`,
-      [req.user.id, req.tenant_id]
-    );
-
-    res.json(schedules);
-  } catch (err) {
-    res.status(500).json({ error: 'Error al obtener oferta académica', details: err.message });
-  }
-}
-
-// Enroll student in a schedule (with student overlap check)
-async function enrollStudent(req, res) {
-  try {
-    const { scheduleId } = req.body;
-    const studentId = req.user.id;
-
-    if (!scheduleId) {
-      return res.status(400).json({ error: 'Debe especificar el id del horario a inscribir' });
-    }
-
-    // 1. Obtener datos del horario solicitado dentro del tenant
-    const targetSchedule = await query.get(
-      `SELECT s.*, sub.name as subject_name
-       FROM schedules s
-       JOIN subjects sub ON s.subject_id = sub.id
-       WHERE s.id = ? AND s.tenant_id = ?`,
-      [scheduleId, req.tenant_id]
-    );
-
-    if (!targetSchedule) {
-      return res.status(404).json({ error: 'El horario no existe en esta institución' });
-    }
-
-    // 2. Verificar si ya está inscrito en este mismo grupo
-    const existingEnrollment = await query.get(
-      'SELECT id FROM enrollments WHERE tenant_id = ? AND student_id = ? AND schedule_id = ?',
-      [req.tenant_id, studentId, scheduleId]
-    );
-    if (existingEnrollment) {
-      return res.status(400).json({ error: 'Ya estás inscrito en este grupo.' });
-    }
-
-    // 3. Verificar si ya está inscrito en esta MISMA materia en otro horario
-    const sameSubjectEnrollment = await query.get(
-      `SELECT e.id, s.day_of_week, s.start_time, s.end_time
-       FROM enrollments e
-       JOIN schedules s ON e.schedule_id = s.id
-       WHERE e.tenant_id = ? AND e.student_id = ? AND s.subject_id = ?`,
-      [req.tenant_id, studentId, targetSchedule.subject_id]
-    );
-    if (sameSubjectEnrollment) {
-      return res.status(400).json({ error: `Ya estás inscrito en la materia "${targetSchedule.subject_name}" en otro horario.` });
-    }
-
-    // 4. Verificar cupo disponible
-    const countRow = await query.get(
-      'SELECT COUNT(*) as count FROM enrollments WHERE schedule_id = ? AND tenant_id = ?',
-      [scheduleId, req.tenant_id]
-    );
-    if (countRow.count >= targetSchedule.max_students) {
-      return res.status(400).json({ error: 'No hay cupo disponible en este grupo (Cupo máximo alcanzado).' });
-    }
-
-    // 5. MOTOR ANTI-EMPALME DEL ALUMNO:
-    // Comprobar si el alumno ya tiene clase inscrita en el mismo día y en horario solapado
-    const studentConflict = await query.get(
-      `SELECT s.*, sub.name as conflicting_subject_name
-       FROM enrollments e
-       JOIN schedules s ON e.schedule_id = s.id
-       JOIN subjects sub ON s.subject_id = sub.id
-       WHERE e.tenant_id = ?
-         AND e.student_id = ?
-         AND s.day_of_week = ?
-         AND (s.start_time < ? AND s.end_time > ?)`,
-      [req.tenant_id, studentId, targetSchedule.day_of_week, targetSchedule.end_time, targetSchedule.start_time]
-    );
-
-    if (studentConflict) {
-      return res.status(409).json({
-        conflictType: 'STUDENT_SCHEDULE_CONFLICT',
-        error: `¡Empalme en tu horario! Ya tienes inscrita la materia "${studentConflict.conflicting_subject_name}" el día ${targetSchedule.day_of_week} de ${studentConflict.start_time} a ${studentConflict.end_time}. No puedes cursar dos materias a la misma hora.`
-      });
-    }
-
-    // 6. Inscribir
-    const enrollmentId = 'enr-' + Date.now();
-    await query.run(
-      'INSERT INTO enrollments (id, tenant_id, student_id, schedule_id) VALUES (?, ?, ?, ?)',
-      [enrollmentId, req.tenant_id, studentId, scheduleId]
-    );
-
-    res.status(201).json({
-      message: `Inscripción exitosa en ${targetSchedule.subject_name}`,
-      enrollmentId
-    });
-  } catch (err) {
-    console.error('Error al inscribir alumno:', err);
-    res.status(500).json({ error: 'Error al procesar inscripción', details: err.message });
-  }
-}
-
-// Drop / Unenroll student
-async function unenrollStudent(req, res) {
-  try {
-    const { scheduleId } = req.params;
-    const studentId = req.user.id;
-
-    const enrollment = await query.get(
-      'SELECT id FROM enrollments WHERE tenant_id = ? AND student_id = ? AND schedule_id = ?',
-      [req.tenant_id, studentId, scheduleId]
-    );
-
-    if (!enrollment) {
-      return res.status(404).json({ error: 'No se encontró la inscripción para este grupo' });
-    }
-
-    await query.run(
-      'DELETE FROM enrollments WHERE tenant_id = ? AND student_id = ? AND schedule_id = ?',
-      [req.tenant_id, studentId, scheduleId]
-    );
-
-    res.json({ message: 'Materia dada de baja correctamente' });
-  } catch (err) {
-    res.status(500).json({ error: 'Error al dar de baja materia', details: err.message });
-  }
-}
-
-// Get enrolled schedules for the current student
-async function getStudentSchedules(req, res) {
-  try {
-    const schedules = await query.all(
-      `SELECT
-         s.id,
-         s.day_of_week,
-         s.start_time,
-         s.end_time,
-         sub.code as subject_code,
-         sub.name as subject_name,
-         sub.credits as subject_credits,
-         t.name as teacher_name,
-         t.email as teacher_email,
-         cr.name as classroom_name,
-         cr.building as classroom_building,
-         e.enrolled_at
-       FROM enrollments e
-       JOIN schedules s ON e.schedule_id = s.id
-       JOIN subjects sub ON s.subject_id = sub.id
-       JOIN users t ON s.teacher_id = t.id
-       JOIN classrooms cr ON s.classroom_id = cr.id
-       WHERE e.tenant_id = ? AND e.student_id = ?
-       ORDER BY
-         CASE s.day_of_week
-           WHEN 'Lunes' THEN 1
-           WHEN 'Martes' THEN 2
-           WHEN 'Miércoles' THEN 3
-           WHEN 'Jueves' THEN 4
-           WHEN 'Viernes' THEN 5
-           WHEN 'Sábado' THEN 6
-           ELSE 7
-         END,
-         s.start_time ASC`,
-      [req.tenant_id, req.user.id]
-    );
-
-    res.json(schedules);
-  } catch (err) {
-    res.status(500).json({ error: 'Error al consultar horario del alumno', details: err.message });
-  }
-}
 
 module.exports = {
   createSchedule,
   getCoordinatorSchedules,
   deleteSchedule,
-  getTeacherSchedules,
-  getAvailableSchedules,
-  enrollStudent,
-  unenrollStudent,
-  getStudentSchedules
+  getTeacherSchedules
 };

@@ -39,17 +39,6 @@
           >
             Profesor
           </v-btn>
-          <v-btn
-            size="small"
-            color="amber-darken-3"
-            variant="flat"
-            class="text-none flex-grow-1 mb-1"
-            prepend-icon="mdi-account-school"
-            :loading="quickLoading === 'alumno'"
-            @click="demoLogin('alumno')"
-          >
-            Alumno
-          </v-btn>
         </div>
       </v-card>
 
@@ -208,7 +197,6 @@
               <v-radio-group v-model="registerForm.role_name" inline hide-details>
                 <v-radio label="Coordinador" value="Coordinador" color="purple-accent-4"></v-radio>
                 <v-radio label="Profesor" value="Profesor" color="teal-darken-1"></v-radio>
-                <v-radio label="Alumno" value="Alumno" color="amber-darken-3"></v-radio>
               </v-radio-group>
             </v-card>
 
@@ -257,7 +245,7 @@ const registerForm = ref({
   identifier: '',
   email: '',
   password: '',
-  role_name: 'Alumno'
+  role_name: 'Profesor'
 });
 
 onMounted(async () => {
@@ -320,8 +308,6 @@ function navigateByRole(role) {
     router.push('/coordinador');
   } else if (role === 'Profesor') {
     router.push('/profesor');
-  } else if (role === 'Alumno') {
-    router.push('/alumno');
   } else {
     router.push('/dashboard');
   }

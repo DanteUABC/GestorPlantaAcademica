@@ -4,7 +4,6 @@ import { useAuthStore } from '../stores/auth';
 import LoginView from '../views/LoginView.vue';
 import CoordinatorView from '../views/CoordinatorView.vue';
 import TeacherView from '../views/TeacherView.vue';
-import StudentView from '../views/StudentView.vue';
 
 const routes = [
   {
@@ -38,12 +37,6 @@ const routes = [
     meta: { roles: ['Profesor', 'Coordinador', 'Administrador'] }
   },
   {
-    path: '/alumno',
-    name: 'Student',
-    component: StudentView,
-    meta: { roles: ['Alumno', 'Coordinador', 'Administrador'] }
-  },
-  {
     path: '/:pathMatch(.*)*',
     redirect: '/login'
   }
@@ -71,7 +64,6 @@ router.beforeEach((to, from, next) => {
   if (to.path === '/dashboard') {
     if (authStore.isCoordinator) return next('/coordinador');
     if (authStore.isTeacher) return next('/profesor');
-    if (authStore.isStudent) return next('/alumno');
   }
 
   if (to.meta.roles && !to.meta.roles.includes(authStore.userRole)) {

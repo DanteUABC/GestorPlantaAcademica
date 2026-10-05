@@ -139,7 +139,7 @@
                     </div>
                     <div class="text-caption text-secondary font-weight-medium mt-1">
                       <v-icon icon="mdi-account-group" size="x-small"></v-icon>
-                      {{ item.enrolled_count }} / {{ item.max_students }} alumnos
+                      Cupo: {{ item.max_students }} alumnos
                     </div>
                   </v-card>
                 </div>
@@ -157,7 +157,7 @@
                 <th class="text-left font-weight-bold">Materia</th>
                 <th class="text-left font-weight-bold">Docente Asignado</th>
                 <th class="text-left font-weight-bold">Aula</th>
-                <th class="text-left font-weight-bold">Cupo / Inscritos</th>
+                <th class="text-left font-weight-bold">Cupo Total</th>
                 <th class="text-right font-weight-bold">Acciones</th>
               </tr>
             </thead>
@@ -184,14 +184,7 @@
                   <div class="text-caption text-grey">{{ sch.classroom_building }}</div>
                 </td>
                 <td>
-                  <v-progress-linear
-                    :model-value="(sch.enrolled_count / sch.max_students) * 100"
-                    color="secondary"
-                    height="8"
-                    rounded
-                    class="mb-1"
-                  ></v-progress-linear>
-                  <span class="text-caption">{{ sch.enrolled_count }} de {{ sch.max_students }} lugares</span>
+                  <span class="text-caption">{{ sch.max_students }} lugares</span>
                 </td>
                 <td class="text-right">
                   <v-btn

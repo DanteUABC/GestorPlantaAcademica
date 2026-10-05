@@ -14,7 +14,6 @@ export const useAuthStore = defineStore('auth', {
     userRole: (state) => state.user?.role_name || '',
     isCoordinator: (state) => state.user?.role_name === 'Coordinador' || state.user?.role_name === 'Administrador',
     isTeacher: (state) => state.user?.role_name === 'Profesor',
-    isStudent: (state) => state.user?.role_name === 'Alumno',
     tenantName: (state) => state.user?.tenant_name || 'Institución Desconocida',
     tenantId: (state) => state.user?.tenant_id || '',
   },
@@ -63,8 +62,7 @@ export const useAuthStore = defineStore('auth', {
     async quickLogin(roleName) {
       const demoAccounts = {
         coordinador: { email: 'coordinador@itc.edu', password: 'demo123', tenant_id: 'tenant-itc' },
-        profesor: { email: 'elena.salgado@itc.edu', password: 'demo123', tenant_id: 'tenant-itc' },
-        alumno: { email: 'alumno@itc.edu', password: 'demo123', tenant_id: 'tenant-itc' }
+        profesor: { email: 'elena.salgado@itc.edu', password: 'demo123', tenant_id: 'tenant-itc' }
       };
 
       const creds = demoAccounts[roleName.toLowerCase()];

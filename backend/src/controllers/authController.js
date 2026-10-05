@@ -54,7 +54,10 @@ async function register(req, res) {
       return res.status(404).json({ error: 'La institución educativa especificada no existe.' });
     }
 
-    // Validar rol
+    // Validar rol (Solo permitir Administrador, Coordinador o Profesor)
+    if (role_name === 'Alumno') {
+        return res.status(400).json({ error: 'El rol Alumno ya no está disponible en el sistema.' });
+    }
     const role = await query.get('SELECT id, name FROM roles WHERE name = ?', [role_name]);
     if (!role) {
       return res.status(400).json({ error: `El rol '${role_name}' no es válido.` });

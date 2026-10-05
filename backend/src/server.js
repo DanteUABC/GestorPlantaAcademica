@@ -55,12 +55,6 @@ app.delete('/api/schedules/:id', requireRole(['Coordinador', 'Administrador']), 
 // Módulo Docente: Consulta de Horario y Grupos
 app.get('/api/schedules/teacher', requireRole(['Profesor', 'Coordinador', 'Administrador']), scheduleController.getTeacherSchedules);
 
-// Módulo Alumno: Oferta Académica, Inscripción y Mi Horario
-app.get('/api/schedules/available', scheduleController.getAvailableSchedules);
-app.post('/api/schedules/enroll', requireRole(['Alumno', 'Coordinador']), scheduleController.enrollStudent);
-app.delete('/api/schedules/:scheduleId/unenroll', requireRole(['Alumno', 'Coordinador']), scheduleController.unenrollStudent);
-app.get('/api/schedules/student', requireRole(['Alumno', 'Coordinador']), scheduleController.getStudentSchedules);
-
 // Healthcheck
 app.get('/api/health', (req, res) => {
   res.json({

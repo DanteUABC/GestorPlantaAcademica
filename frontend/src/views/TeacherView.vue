@@ -25,21 +25,14 @@
 
     <!-- Stats -->
     <v-row class="mb-6">
-      <v-col cols="12" sm="4">
+      <v-col cols="12" sm="6">
         <v-card elevation="2" rounded="lg" class="pa-4 border-s-lg border-teal">
           <div class="text-caption text-grey font-weight-bold">CLASES ASIGNADAS</div>
           <div class="text-h4 font-weight-bold text-teal-darken-2 mt-1">{{ schedules.length }}</div>
           <div class="text-caption text-grey mt-1">Grupos bajo mi responsabilidad</div>
         </v-card>
       </v-col>
-      <v-col cols="12" sm="4">
-        <v-card elevation="2" rounded="lg" class="pa-4 border-s-lg border-info">
-          <div class="text-caption text-grey font-weight-bold">ALUMNOS TOTALES</div>
-          <div class="text-h4 font-weight-bold text-info mt-1">{{ totalStudents }}</div>
-          <div class="text-caption text-grey mt-1">Inscritos en mis grupos</div>
-        </v-card>
-      </v-col>
-      <v-col cols="12" sm="4">
+      <v-col cols="12" sm="6">
         <v-card elevation="2" rounded="lg" class="pa-4 border-s-lg border-secondary">
           <div class="text-caption text-grey font-weight-bold">HORAS SEMANALES</div>
           <div class="text-h4 font-weight-bold text-secondary mt-1">{{ totalWeeklyHours }}</div>
@@ -100,93 +93,13 @@
                   </div>
                   <div class="text-caption text-teal-darken-1 font-weight-medium mt-1">
                     <v-icon icon="mdi-account-group" size="x-small"></v-icon>
-                    {{ item.enrolled_count }} / {{ item.max_students }} alumnos
+                    Cupo: {{ item.max_students }} alumnos
                   </div>
                 </v-card>
               </div>
             </v-card>
           </v-col>
         </v-row>
-      </v-card-text>
-    </v-card>
-
-    <!-- Expansion Panels per class with student list -->
-    <v-card v-if="schedules.length > 0" elevation="2" rounded="lg">
-      <v-card-title class="bg-teal-darken-2 text-white py-3">
-        <v-icon icon="mdi-account-group" class="mr-2"></v-icon>
-        Detalle por Grupo y Lista de Alumnos
-      </v-card-title>
-      <v-card-text class="pa-4">
-        <v-expansion-panels variant="accordion">
-          <v-expansion-panel
-            v-for="sch in schedules"
-            :key="sch.id"
-          >
-            <v-expansion-panel-title>
-              <div class="d-flex align-center flex-wrap" style="gap: 8px; width: 100%;">
-                <v-chip color="teal" variant="tonal" size="small" class="font-weight-bold">
-                  {{ sch.day_of_week }}
-                </v-chip>
-                <span class="text-caption font-weight-medium">{{ sch.start_time }} - {{ sch.end_time }}</span>
-                <span class="font-weight-bold">{{ sch.subject_name }}</span>
-                <span class="text-caption text-grey">({{ sch.subject_code }})</span>
-                <v-spacer></v-spacer>
-                <v-chip
-                  :color="sch.enrolled_count > 0 ? 'info' : 'grey'"
-                  variant="tonal"
-                  size="small"
-                >
-                  <v-icon icon="mdi-account-group" start size="small"></v-icon>
-                  {{ sch.enrolled_count }} inscritos
-                </v-chip>
-              </div>
-            </v-expansion-panel-title>
-            <v-expansion-panel-text>
-              <div class="mb-2">
-                <v-chip size="small" variant="outlined" class="mr-2">
-                  <v-icon icon="mdi-door" start size="small"></v-icon>
-                  {{ sch.classroom_name }}
-                </v-chip>
-                <v-chip size="small" variant="outlined" class="mr-2">
-                  <v-icon icon="mdi-office-building" start size="small"></v-icon>
-                  {{ sch.classroom_building || 'Edificio Principal' }}
-                </v-chip>
-                <v-chip size="small" variant="outlined">
-                  <v-icon icon="mdi-star" start size="small"></v-icon>
-                  {{ sch.subject_credits }} créditos
-                </v-chip>
-              </div>
-
-              <div v-if="!sch.students || sch.students.length === 0" class="text-center py-4 text-grey">
-                <v-icon icon="mdi-account-off" class="mb-1"></v-icon>
-                <div>Aún no hay alumnos inscritos en este grupo.</div>
-              </div>
-
-              <v-table v-else density="compact" hover>
-                <thead>
-                  <tr>
-                    <th>#</th>
-                    <th>Nombre del Alumno</th>
-                    <th>Correo Electrónico</th>
-                    <th>Matrícula</th>
-                    <th>Fecha de Inscripción</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr v-for="(student, idx) in sch.students" :key="student.id">
-                    <td>{{ idx + 1 }}</td>
-                    <td class="font-weight-medium">{{ student.name }}</td>
-                    <td>{{ student.email }}</td>
-                    <td>
-                      <v-chip size="x-small" color="teal" variant="tonal">{{ student.identifier || 'N/A' }}</v-chip>
-                    </td>
-                    <td class="text-caption">{{ formatDate(student.enrolled_at) }}</td>
-                  </tr>
-                </tbody>
-              </v-table>
-            </v-expansion-panel-text>
-          </v-expansion-panel>
-        </v-expansion-panels>
       </v-card-text>
     </v-card>
   </v-container>
@@ -201,10 +114,6 @@ const authStore = useAuthStore();
 const schedules = ref([]);
 const loading = ref(false);
 const daysOfWeek = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
-
-const totalStudents = computed(() => {
-  return schedules.value.reduce((sum, s) => sum + (s.enrolled_count || 0), 0);
-});
 
 const totalWeeklyHours = computed(() => {
   return schedules.value.reduce((sum, s) => {
