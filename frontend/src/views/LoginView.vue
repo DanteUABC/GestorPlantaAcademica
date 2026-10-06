@@ -280,16 +280,24 @@ const registerForm = ref({
 onMounted(async () => {
   // Manejar callback de SSO con token en query params
   if (route.query.token) {
-    authStore._processToken(route.query.token);
-    if (authStore.userRole) {
-      return navigateByRole(authStore.userRole);
-    } else if (authStore.tenantId) {
-      try {
-        await authStore.selectTenant(authStore.tenantId);
-        return navigateByRole(authStore.userRole);
-      } catch (err) {
-        errorMessage.value = 'Error al asignar institución tras SSO';
+    try {
+      authStore._processToken(route.query.token);
+      // Si ya tiene rol completo (usuario existente), navegar
+      if (authStore.userRole) {
+        return await navigateByRole(authStore.userRole);
+      } 
+      // Si tiene tenant_id (asignado por JIT Provisioning) pero falta el rol, solicitar token final
+      else if (authStore.tenantId) {
+        const responseData = await authStore.selectTenant(authStore.tenantId);
+        // Usar responseData.role si userRole no estuviera seteado, aunque _processToken ya debió hacerlo
+        const finalRole = authStore.userRole || responseData.role;
+        return await navigateByRole(finalRole);
+      } else {
+        errorMessage.value = 'El token institucional no tiene una institución asignada.';
       }
+    } catch (err) {
+      console.error('SSO Error:', err);
+      errorMessage.value = 'Error al asignar institución tras SSO: ' + (err.message || 'Fallo desconocido');
     }
   }
 
@@ -314,7 +322,7 @@ async function handleLogin() {
   errorMessage.value = '';
   try {
     const user = await authStore.login(loginForm.value.email, loginForm.value.password, loginForm.value.tenant_id);
-    navigateByRole(user.role_name);
+    await navigateByRole(user.role_name);
   } catch (err) {
     errorMessage.value = err || 'Error al iniciar sesión';
   } finally {
@@ -328,8 +336,8 @@ async function handleRegister() {
   try {
     const user = await authStore.register(registerForm.value);
     successMessage.value = '¡Cuenta creada con éxito! Redirigiendo...';
-    setTimeout(() => {
-      navigateByRole(user.role_name);
+    setTimeout(async () => {
+      await navigateByRole(user.role_name);
     }, 1000);
   } catch (err) {
     errorMessage.value = err || 'Error al registrar usuario';
@@ -343,7 +351,7 @@ async function demoLogin(role) {
   errorMessage.value = '';
   try {
     const user = await authStore.quickLogin(role);
-    navigateByRole(user.role_name);
+    await navigateByRole(user.role_name);
   } catch (err) {
     errorMessage.value = err || 'Error en acceso rápido demo';
   } finally {
@@ -353,11 +361,11 @@ async function demoLogin(role) {
 
 function navigateByRole(role) {
   if (role === 'Coordinador' || role === 'Administrador') {
-    router.push('/coordinator');
+    return router.push('/coordinator');
   } else if (role === 'Profesor') {
-    router.push('/teacher');
+    return router.push('/teacher');
   } else {
-    router.push('/unauthorized');
+    return router.push('/unauthorized');
   }
 }
 </script>

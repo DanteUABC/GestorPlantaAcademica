@@ -96,19 +96,23 @@ app.get('/api/health', (req, res) => {
   });
 });
 
-// Inicializar DB e iniciar servidor
-initDatabase()
-  .then(() => {
-    app.listen(PORT, () => {
-      console.log(`=======================================================`);
-      console.log(`🚀 Gestor de Planta Académica - Backend SaaS Activo`);
-      console.log(`📡 Puerto: http://localhost:${PORT}`);
-      console.log(`🔒 Multi-tenant: "Shared Database, Shared Schema"`);
-      console.log(`🛡️  SSO: Google & Microsoft OAuth 2.0 integrado`);
-      console.log(`=======================================================`);
+// Inicializar DB e iniciar servidor solo si es ejecutado directamente
+if (require.main === module) {
+  initDatabase()
+    .then(() => {
+      app.listen(PORT, () => {
+        console.log(`=======================================================`);
+        console.log(`🚀 Gestor de Planta Académica - Backend SaaS Activo`);
+        console.log(`📡 Puerto: http://localhost:${PORT}`);
+        console.log(`🔒 Multi-tenant: "Shared Database, Shared Schema"`);
+        console.log(`🛡️  SSO: Google & Microsoft OAuth 2.0 integrado`);
+        console.log(`=======================================================`);
+      });
+    })
+    .catch((err) => {
+      console.error('Error al inicializar la base de datos:', err);
+      process.exit(1);
     });
-  })
-  .catch((err) => {
-    console.error('Error al inicializar la base de datos:', err);
-    process.exit(1);
-  });
+}
+
+module.exports = app;
