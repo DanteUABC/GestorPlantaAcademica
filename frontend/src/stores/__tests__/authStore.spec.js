@@ -1,57 +1,70 @@
-import { setActivePinia, createPinia, defineStore } from 'pinia';
-import { describe, it, expect, beforeEach } from 'vitest';
+import { setActivePinia, createPinia } from 'pinia';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { useAuthStore } from '../authStore';
+import api from '../../api/client';
 
-// Simulación del store esperado para la Task 1.5
-const useAuthStore = defineStore('auth', {
-    state: () => ({
-        isAuthenticated: false,
-        userProfile: null,
-        tenant_id: null,
-        token: null,
-    }),
-    actions: {
-        loginSuccess(payload) {
-            this.isAuthenticated = true;
-            this.token = payload.token;
-            this.tenant_id = payload.tenant_id;
-            this.userProfile = payload.userProfile;
-        },
-        logout() {
-            this.isAuthenticated = false;
-            this.token = null;
-            this.tenant_id = null;
-            this.userProfile = null;
-        }
+// Mock del cliente API
+vi.mock('../../api/client', () => ({
+    default: {
+        post: vi.fn(),
+        get: vi.fn()
     }
-});
+}));
+
+// No mockearemos jwt-decode porque processToken lo necesita, 
+// o sí lo mockeamos para devolver el payload directo:
+vi.mock('jwt-decode', () => ({
+    jwtDecode: vi.fn((token) => ({
+        tenant_id: 10,
+        role: 'Coordinador',
+        sub: 'usr-1',
+        name: 'Admin'
+    }))
+}));
 
 describe('authStore - Gestión de Sesión', () => {
     beforeEach(() => {
         setActivePinia(createPinia());
+        vi.clearAllMocks();
+        localStorage.clear();
     });
 
     it('el estado inicial debe estar desautenticado', () => {
         const store = useAuthStore();
         expect(store.isAuthenticated).toBe(false);
-        expect(store.token).toBeNull();
+        expect(store.accessToken).toBeNull();
     });
 
-    it('debe actualizar el estado al iniciar sesión exitosamente', () => {
+    it('debe actualizar el estado al iniciar sesión exitosamente', async () => {
         const store = useAuthStore();
-        store.loginSuccess({ token: 'jwt123', tenant_id: 10, userProfile: { name: 'Admin' } });
+        
+        api.post.mockResolvedValueOnce({
+            data: { accessToken: 'jwt123', user: { id: 'usr-1', name: 'Admin', role_name: 'Coordinador' } }
+        });
+
+        await store.login('test@test.com', 'pwd123');
         
         expect(store.isAuthenticated).toBe(true);
-        expect(store.tenant_id).toBe(10);
-        expect(store.token).toBe('jwt123');
+        expect(store.tenantId).toBe(10);
+        expect(store.accessToken).toBe('jwt123');
+        expect(store.userRole).toBe('Coordinador');
     });
 
-    it('debe limpiar el estado al cerrar sesión', () => {
+    it('debe limpiar el estado al cerrar sesión', async () => {
         const store = useAuthStore();
-        store.loginSuccess({ token: 'jwt123', tenant_id: 10, userProfile: { name: 'Admin' } });
-        store.logout();
+        
+        // Setup initial auth state manually
+        store.accessToken = 'jwt123';
+        store.tenantId = 10;
+        store.userRole = 'Coordinador';
+        
+        api.post.mockResolvedValueOnce({});
+        
+        await store.logout();
         
         expect(store.isAuthenticated).toBe(false);
-        expect(store.token).toBeNull();
-        expect(store.tenant_id).toBeNull();
+        expect(store.accessToken).toBeNull();
+        expect(store.tenantId).toBeNull();
+        expect(store.userRole).toBeNull();
     });
 });

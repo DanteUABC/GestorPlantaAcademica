@@ -1,34 +1,40 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import router from '../index';
+import { setActivePinia, createPinia } from 'pinia';
+import { useAuthStore } from '../../stores/authStore';
 
-// Simulación del Navigation Guard para la Task 1.6
-const mockRouterGuard = (to, from, next, isAuthenticated) => {
-    if (to.meta.requiresAuth && !isAuthenticated) {
-        next('/login');
-    } else {
-        next();
-    }
-};
+// Evitar dependencias de componentes reales para el router test
+vi.mock('../../views/LoginView.vue', () => ({ default: { template: '<div></div>' } }));
+vi.mock('../../views/CoordinatorView.vue', () => ({ default: { template: '<div></div>' } }));
+vi.mock('../../views/TeacherView.vue', () => ({ default: { template: '<div></div>' } }));
+vi.mock('../../views/UnauthorizedView.vue', () => ({ default: { template: '<div></div>' } }));
 
 describe('Vue Router - Navigation Guards', () => {
-    it('debe redirigir a /login si el usuario no está autenticado e intenta acceder a una ruta protegida', () => {
-        const to = { path: '/dashboard', meta: { requiresAuth: true } };
-        const from = { path: '/' };
-        const next = vi.fn();
-        const isAuthenticated = false;
-
-        mockRouterGuard(to, from, next, isAuthenticated);
-
-        expect(next).toHaveBeenCalledWith('/login');
+    beforeEach(() => {
+        setActivePinia(createPinia());
+        vi.clearAllMocks();
     });
 
-    it('debe permitir el acceso si el usuario está autenticado', () => {
-        const to = { path: '/dashboard', meta: { requiresAuth: true } };
-        const from = { path: '/' };
-        const next = vi.fn();
-        const isAuthenticated = true;
+    it('debe redirigir a /login si el usuario no está autenticado e intenta acceder a una ruta protegida', async () => {
+        const store = useAuthStore();
+        // Forzamos que silentRefresh falle
+        store.silentRefresh = vi.fn().mockResolvedValue(false);
+        store.accessToken = null;
 
-        mockRouterGuard(to, from, next, isAuthenticated);
+        await router.push('/coordinator');
+        await router.isReady();
+        
+        expect(router.currentRoute.value.path).toBe('/login');
+    });
 
-        expect(next).toHaveBeenCalledWith(); // next() sin argumentos permite la navegación
+    it('debe permitir el acceso si el usuario está autenticado', async () => {
+        const store = useAuthStore();
+        store.accessToken = 'dummy';
+        store.userRole = 'Coordinador';
+
+        await router.push('/coordinator');
+        await router.isReady();
+        
+        expect(router.currentRoute.value.path).toBe('/coordinator');
     });
 });
