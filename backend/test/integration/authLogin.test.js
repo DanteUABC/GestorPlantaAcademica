@@ -18,10 +18,19 @@ describe('Integración: Login Endpoint con PostgreSQL (Mockeado via spy)', () =>
         vi.restoreAllMocks();
     });
 
-    it('Debe devolver 401 si faltan credenciales', async () => {
+    it('Debe devolver 400 si el correo no incluye la denominación @pavilion.com', async () => {
         const response = await request(app)
             .post('/api/auth/login')
-            .send({ email: 'coordinador@itc.edu' }); // Falta password
+            .send({ email: 'usuario@gmail.com', password: 'password123' });
+
+        expect(response.status).toBe(400);
+        expect(response.body.error).toBe('Debe incluir la denominación @pavilion.com para iniciar sesión');
+    });
+
+    it('Debe devolver 400 si faltan credenciales', async () => {
+        const response = await request(app)
+            .post('/api/auth/login')
+            .send({ email: 'coordinador@pavilion.com' }); // Falta password
 
         expect(response.status).toBe(400);
         expect(response.body.error).toBe('Debe ingresar correo y contraseña');
@@ -33,7 +42,7 @@ describe('Integración: Login Endpoint con PostgreSQL (Mockeado via spy)', () =>
 
         const response = await request(app)
             .post('/api/auth/login')
-            .send({ email: 'noexiste@itc.edu', password: 'password123' });
+            .send({ email: 'noexiste@pavilion.com', password: 'password123' });
 
         expect(response.status).toBe(401);
         expect(response.body.error).toBe('Credenciales inválidas (usuario o institución no encontrados)');
@@ -45,12 +54,12 @@ describe('Integración: Login Endpoint con PostgreSQL (Mockeado via spy)', () =>
         
         // Simulamos usuario encontrado en db.js -> pool.query()
         poolQuerySpy.mockResolvedValueOnce({ 
-            rows: [{ id: 'usr-1', email: 'test@itc.edu', password_hash: hashedPassword, tenant_id: 'tenant-itc', role_id: 'role-coord' }] 
+            rows: [{ id: 'usr-1', email: 'test@pavilion.com', password_hash: hashedPassword, tenant_id: 'tenant-itc', role_id: 'role-coord' }] 
         });
 
         const response = await request(app)
             .post('/api/auth/login')
-            .send({ email: 'test@itc.edu', password: 'wrong-password' });
+            .send({ email: 'test@pavilion.com', password: 'wrong-password' });
 
         expect(response.status).toBe(401);
         expect(response.body.error).toBe('Credenciales inválidas (contraseña incorrecta)');
@@ -61,12 +70,12 @@ describe('Integración: Login Endpoint con PostgreSQL (Mockeado via spy)', () =>
         
         // authController.login -> Busca usuario
         poolQuerySpy.mockResolvedValueOnce({ 
-            rows: [{ id: 'usr-coord-1', email: 'coordinador@itc.edu', password_hash: hashedPassword, tenant_id: 'tenant-itc', role_id: 'role-coord', role_name: 'Coordinador', name: 'Dr. Roberto Mendoza (Coordinador)' }] 
+            rows: [{ id: 'usr-coord-1', email: 'coordinador@pavilion.com', password_hash: hashedPassword, tenant_id: 'tenant-itc', role_id: 'role-coord', role_name: 'Coordinador', name: 'Dr. Roberto Mendoza (Coordinador)' }] 
         });
 
         const response = await request(app)
             .post('/api/auth/login')
-            .send({ email: 'coordinador@itc.edu', password: 'demo123', tenant_id: 'tenant-itc' });
+            .send({ email: 'coordinador@pavilion.com', password: 'demo123', tenant_id: 'tenant-itc' });
 
         expect(response.status).toBe(200);
         expect(response.body.token).toBeDefined();

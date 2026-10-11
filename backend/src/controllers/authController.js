@@ -163,6 +163,9 @@ exports.getRoles = async (req, res) => {
   }
 };
 
+// Validación compartida para reutilización de dominio institucional
+const isPavilionEmail = (email) => email && email.trim().toLowerCase().endsWith('@pavilion.com');
+
 // Register user with tenant and role selection
 exports.register = async (req, res) => {
   try {
@@ -170,6 +173,12 @@ exports.register = async (req, res) => {
 
     if (!name || !email || !password || !role_name) {
       return res.status(400).json({ error: 'Todos los campos obligatorios deben estar presentes (nombre, correo, contraseña, rol).' });
+    }
+
+    if (!isPavilionEmail(email)) {
+      return res.status(400).json({ 
+        error: 'Debe incluir la denominación @pavilion.com en su correo electrónico' 
+      });
     }
 
     let finalTenantId = tenant_id;
@@ -260,6 +269,12 @@ exports.login = async (req, res) => {
 
     if (!email || !password) {
       return res.status(400).json({ error: 'Debe ingresar correo y contraseña' });
+    }
+
+    if (!isPavilionEmail(email)) {
+      return res.status(400).json({ 
+        error: 'Debe incluir la denominación @pavilion.com para iniciar sesión' 
+      });
     }
 
     const cleanEmail = email.toLowerCase().trim();
@@ -353,3 +368,8 @@ exports.getMe = async (req, res) => {
     res.status(500).json({ error: 'Error al obtener perfil', details: err.message });
   }
 };
+
+exports.isPavilionEmail = isPavilionEmail;
+exports.registerLocal = exports.register;
+exports.loginLocal = exports.login;
+

@@ -101,8 +101,8 @@ export const useAuthStore = defineStore('auth', {
     },
     async quickLogin(roleName) {
       const demoAccounts = {
-        coordinador: { email: 'coordinador@itc.edu', password: 'demo123', tenant_id: 'tenant-itc' },
-        profesor: { email: 'elena.salgado@itc.edu', password: 'demo123', tenant_id: 'tenant-itc' }
+        coordinador: { email: 'coordinador@pavilion.com', password: 'demo123', tenant_id: 'tenant-itc' },
+        profesor: { email: 'elena.salgado@pavilion.com', password: 'demo123', tenant_id: 'tenant-itc' }
       };
 
       const creds = demoAccounts[roleName.toLowerCase()];

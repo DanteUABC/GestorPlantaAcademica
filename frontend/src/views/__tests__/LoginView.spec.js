@@ -68,4 +68,19 @@ describe('LoginView.vue - UI de Autenticación', () => {
         // Simplemente verificamos que el componente montó sin errores y podemos llamar al setup
         expect(wrapper.exists()).toBe(true);
     });
+
+    it('debe validar la regla de terminación @pavilion.com', () => {
+        const emailRules = [
+            v => !!v || 'El correo es requerido.',
+            v => (v && v.trim().toLowerCase().endsWith('@pavilion.com')) || 'Debe incluir la terminación @pavilion.com para continuar.'
+        ];
+
+        // Caso inválido: falta terminación @pavilion.com
+        expect(emailRules[1]('usuario@gmail.com')).toBe('Debe incluir la terminación @pavilion.com para continuar.');
+        expect(emailRules[1]('usuario@itc.edu')).toBe('Debe incluir la terminación @pavilion.com para continuar.');
+        
+        // Caso válido: con @pavilion.com
+        expect(emailRules[1]('docente@pavilion.com')).toBe(true);
+        expect(emailRules[1]('coordinador@pavilion.com ')).toBe(true);
+    });
 });
