@@ -76,14 +76,51 @@
 
     <!-- Tabs between Weekly Grid and Data Table -->
     <v-card elevation="2" rounded="lg">
-      <v-tabs v-model="viewTab" color="primary" grow>
-        <v-tab value="grid" prepend-icon="mdi-view-week">Parrilla Semanal de Horarios</v-tab>
-        <v-tab value="list" prepend-icon="mdi-format-list-bulleted">Listado Detallado de Grupos</v-tab>
-      </v-tabs>
-
-      <v-divider></v-divider>
+      <div class="d-flex flex-wrap justify-space-between align-center px-4 pt-2 no-print border-b">
+        <v-tabs v-model="viewTab" color="primary">
+          <v-tab value="grid" prepend-icon="mdi-view-week">Parrilla Semanal de Horarios</v-tab>
+          <v-tab value="list" prepend-icon="mdi-format-list-bulleted">Listado Detallado de Grupos</v-tab>
+        </v-tabs>
+        <div class="d-flex align-center ga-3 my-2">
+          <v-select
+            v-model="selectedTeacherFilter"
+            :items="[{ id: '', name: 'Todos los Docentes' }, ...teachers]"
+            item-title="name"
+            item-value="id"
+            label="Consultar Docente"
+            density="compact"
+            variant="outlined"
+            hide-details
+            style="min-width: 240px;"
+            prepend-inner-icon="mdi-account-tie"
+          ></v-select>
+          <v-btn
+            color="primary"
+            prepend-icon="mdi-printer"
+            class="text-none font-weight-bold"
+            @click="imprimirHorario"
+          >
+            Imprimir Horario
+          </v-btn>
+        </div>
+      </div>
 
       <v-card-text class="pa-4">
+        <!-- Información del Docente para Consulta e Impresión -->
+        <div v-if="selectedTeacherName" class="mb-4 pa-3 bg-blue-lighten-5 rounded border d-flex justify-space-between align-center">
+          <div>
+            <div class="text-subtitle-1 font-weight-bold text-primary">
+              <v-icon icon="mdi-teach" class="mr-1"></v-icon>
+              Horario del Docente: {{ selectedTeacherName }}
+            </div>
+            <div class="text-caption text-grey-darken-1">
+              Institución: {{ authStore.tenantName }} &bull; Carga semanal asignada
+            </div>
+          </div>
+          <v-chip color="primary" variant="tonal" size="small" class="font-weight-bold">
+            {{ filteredSchedules.length }} clases asignadas
+          </v-chip>
+        </div>
         <!-- TAB 1: WEEKLY GRID -->
         <div v-if="viewTab === 'grid'">
           <v-row>
@@ -162,7 +199,7 @@
               </tr>
             </thead>
             <tbody>
-              <tr v-for="sch in schedules" :key="sch.id">
+              <tr v-for="sch in filteredSchedules" :key="sch.id">
                 <td>
                   <v-chip size="small" color="primary" variant="tonal" class="font-weight-bold mr-1">
                     {{ sch.day_of_week }}
@@ -199,7 +236,7 @@
                   </v-btn>
                 </td>
               </tr>
-              <tr v-if="schedules.length === 0">
+              <tr v-if="filteredSchedules.length === 0">
                 <td colspan="6" class="text-center py-6 text-grey">
                   No hay horarios programados aún. Haz clic en "Armar Nuevo Horario" para crear el primero.
                 </td>
@@ -364,7 +401,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue';
+import { ref, computed, onMounted } from 'vue';
 import { useAuthStore } from '../stores/authStore';
 import api from '../api/client';
 
@@ -376,6 +413,25 @@ const subjects = ref([]);
 const teachers = ref([]);
 const classrooms = ref([]);
 const daysOfWeek = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
+
+const selectedTeacherFilter = ref('');
+
+const selectedTeacherName = computed(() => {
+  if (!selectedTeacherFilter.value) return '';
+  const t = teachers.value.find(teach => teach.id === selectedTeacherFilter.value);
+  return t ? t.name : '';
+});
+
+const filteredSchedules = computed(() => {
+  if (!selectedTeacherFilter.value) return schedules.value;
+  return schedules.value.filter(s => s.teacher_id === selectedTeacherFilter.value);
+});
+
+function imprimirHorario() {
+  if (typeof window !== 'undefined' && typeof window.print === 'function') {
+    window.print();
+  }
+}
 
 const timeSlots = [
   '07:00', '08:00', '09:00', '10:00', '11:00', '12:00',
@@ -424,7 +480,7 @@ async function loadData() {
 }
 
 function getSchedulesByDay(day) {
-  return schedules.value.filter(s => s.day_of_week === day);
+  return filteredSchedules.value.filter(s => s.day_of_week === day);
 }
 
 function openCreateDialog() {
@@ -480,3 +536,44 @@ async function handleDeleteSchedule(id) {
   }
 }
 </script>
+
+<style>
+@media print {
+  .v-app-bar,
+  .v-navigation-drawer,
+  .v-footer,
+  .v-btn,
+  .v-alert,
+  .v-tabs,
+  .border-b,
+  .v-select,
+  .no-print {
+    display: none !important;
+  }
+
+  body,
+  .v-application,
+  .v-main,
+  .v-container {
+    background: #ffffff !important;
+    background-color: #ffffff !important;
+    color: #000000 !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    width: 100% !important;
+    max-width: 100% !important;
+  }
+
+  .v-card {
+    box-shadow: none !important;
+    border: 1px solid #ddd !important;
+    background: #ffffff !important;
+    break-inside: avoid;
+  }
+
+  * {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+}
+</style>
