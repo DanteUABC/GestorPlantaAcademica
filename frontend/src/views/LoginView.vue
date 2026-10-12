@@ -76,7 +76,7 @@
       <v-window v-model="tab">
         <!-- TAB 1: INICIAR SESIÓN -->
         <v-window-item value="login">
-          <v-form @submit.prevent="handleLogin">
+          <v-form @submit.prevent="handleLogin" v-model="isLoginFormValid">
             <!-- Institution (Tenant) Selection -->
             <v-select
               v-model="loginForm.tenant_id"
@@ -93,13 +93,15 @@
 
             <v-text-field
               v-model="loginForm.email"
-              label="Correo Electrónico"
+              label="Correo de la plataforma"
+              placeholder="usuario@pavilion.com"
               type="email"
               variant="outlined"
               density="comfortable"
               prepend-inner-icon="mdi-email-outline"
               class="mb-2"
-              :rules="[v => !!v || 'El correo es requerido']"
+              :rules="emailRules"
+              required
             ></v-text-field>
 
             <v-text-field
@@ -111,6 +113,7 @@
               prepend-inner-icon="mdi-lock-outline"
               class="mb-4"
               :rules="[v => !!v || 'La contraseña es requerida']"
+              required
             ></v-text-field>
 
             <v-btn
@@ -120,6 +123,7 @@
               size="large"
               class="text-none font-weight-bold"
               :loading="loading"
+              :disabled="!isLoginFormValid"
             >
               Ingresar al Sistema
             </v-btn>
@@ -156,7 +160,7 @@
 
         <!-- TAB 2: REGISTRARSE CON PREGUNTA DE ROL Y DATOS BÁSICOS -->
         <v-window-item value="register">
-          <v-form @submit.prevent="handleRegister">
+          <v-form @submit.prevent="handleRegister" v-model="isRegisterFormValid">
             <!-- Institution -->
             <v-select
               v-model="registerForm.tenant_id"
@@ -194,13 +198,15 @@
 
             <v-text-field
               v-model="registerForm.email"
-              label="Correo Electrónico"
+              label="Correo de la plataforma"
+              placeholder="usuario@pavilion.com"
               type="email"
               variant="outlined"
               density="comfortable"
               prepend-inner-icon="mdi-email-outline"
               class="mb-2"
-              :rules="[v => !!v || 'El correo es obligatorio']"
+              :rules="emailRules"
+              required
             ></v-text-field>
 
             <v-text-field
@@ -212,6 +218,7 @@
               prepend-inner-icon="mdi-lock-outline"
               class="mb-2"
               :rules="[v => !!v || 'La contraseña es obligatoria']"
+              required
             ></v-text-field>
 
             <!-- MANDATORY ROLE QUESTION -->
@@ -235,6 +242,7 @@
               size="large"
               class="text-none font-weight-bold"
               :loading="loading"
+              :disabled="!isRegisterFormValid"
             >
               Completar Registro
             </v-btn>
@@ -262,9 +270,18 @@ const errorMessage = ref('');
 const successMessage = ref('');
 const tenants = ref([]);
 
+const isLoginFormValid = ref(false);
+const isRegisterFormValid = ref(false);
+
+// Reglas de validación reactivas de Vuetify para correo propio @pavilion.com
+const emailRules = [
+  v => !!v || 'El correo es requerido.',
+  v => (v && v.trim().toLowerCase().endsWith('@pavilion.com')) || 'Debe incluir la terminación @pavilion.com para continuar.'
+];
+
 const loginForm = ref({
   tenant_id: 'tenant-itc',
-  email: 'coordinador@itc.edu',
+  email: 'coordinador@pavilion.com',
   password: 'demo123'
 });
 
@@ -289,7 +306,6 @@ onMounted(async () => {
       // Si tiene tenant_id (asignado por JIT Provisioning) pero falta el rol, solicitar token final
       else if (authStore.tenantId) {
         const responseData = await authStore.selectTenant(authStore.tenantId);
-        // Usar responseData.role si userRole no estuviera seteado, aunque _processToken ya debió hacerlo
         const finalRole = authStore.userRole || responseData.role;
         return await navigateByRole(finalRole);
       } else {
@@ -318,6 +334,7 @@ onMounted(async () => {
 });
 
 async function handleLogin() {
+  if (isLoginFormValid.value === false) return;
   loading.value = true;
   errorMessage.value = '';
   try {
@@ -331,6 +348,7 @@ async function handleLogin() {
 }
 
 async function handleRegister() {
+  if (isRegisterFormValid.value === false) return;
   loading.value = true;
   errorMessage.value = '';
   try {

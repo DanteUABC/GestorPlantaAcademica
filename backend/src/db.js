@@ -141,6 +141,7 @@ async function initDatabase() {
       ALTER TABLE users ALTER COLUMN password_hash DROP NOT NULL;
       ALTER TABLE users ADD COLUMN IF NOT EXISTS google_id VARCHAR(255) UNIQUE;
       ALTER TABLE users ADD COLUMN IF NOT EXISTS microsoft_id VARCHAR(255) UNIQUE;
+      UPDATE users SET email = REPLACE(email, '@itc.edu', '@pavilion.com') WHERE email LIKE '%@itc.edu';
     `);
   } catch (migErr) {
     console.warn('Nota en migraciones incrementales:', migErr.message);
@@ -249,7 +250,7 @@ async function seedInitialData() {
       id: 'usr-coord-1',
       tenant_id: 'tenant-itc',
       name: 'Dr. Roberto Mendoza (Coordinador)',
-      email: 'coordinador@itc.edu',
+      email: 'coordinador@pavilion.com',
       password_hash: defaultPasswordHash,
       role_id: 'role-coord',
       identifier: 'EMP-001'
@@ -258,7 +259,7 @@ async function seedInitialData() {
       id: 'usr-prof-1',
       tenant_id: 'tenant-itc',
       name: 'Mtra. Elena Salgado (Profesora)',
-      email: 'elena.salgado@itc.edu',
+      email: 'elena.salgado@pavilion.com',
       password_hash: defaultPasswordHash,
       role_id: 'role-teacher',
       identifier: 'DOC-101'
@@ -267,7 +268,7 @@ async function seedInitialData() {
       id: 'usr-prof-2',
       tenant_id: 'tenant-itc',
       name: 'Dr. Carlos Vega (Profesor)',
-      email: 'carlos.vega@itc.edu',
+      email: 'carlos.vega@pavilion.com',
       password_hash: defaultPasswordHash,
       role_id: 'role-teacher',
       identifier: 'DOC-102'
@@ -282,6 +283,8 @@ async function seedInitialData() {
          VALUES (?, ?, ?, ?, ?, ?, ?)`,
         [u.id, u.tenant_id, u.name, u.email, u.password_hash, u.role_id, u.identifier]
       );
+    } else {
+      await query.run('UPDATE users SET email = ? WHERE id = ?', [u.email, u.id]);
     }
   }
 
