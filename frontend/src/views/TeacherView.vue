@@ -11,16 +11,26 @@
           {{ authStore.user?.name }} &bull; {{ authStore.tenantName }}
         </p>
       </div>
-      <v-btn
-        color="teal-darken-1"
-        variant="tonal"
-        prepend-icon="mdi-refresh"
-        class="text-none"
-        :loading="loading"
-        @click="loadData"
-      >
-        Actualizar
-      </v-btn>
+      <div class="d-flex ga-2">
+        <v-btn
+          color="primary"
+          prepend-icon="mdi-printer"
+          class="text-none font-weight-bold"
+          @click="imprimirHorario"
+        >
+          Imprimir Horario
+        </v-btn>
+        <v-btn
+          color="teal-darken-1"
+          variant="tonal"
+          prepend-icon="mdi-refresh"
+          class="text-none"
+          :loading="loading"
+          @click="loadData"
+        >
+          Actualizar
+        </v-btn>
+      </div>
     </div>
 
     <!-- Stats -->
@@ -148,5 +158,49 @@ async function loadData() {
   }
 }
 
+function imprimirHorario() {
+  if (typeof window !== 'undefined' && typeof window.print === 'function') {
+    window.print();
+  }
+}
+
 onMounted(loadData);
 </script>
+
+<style>
+@media print {
+  .v-app-bar,
+  .v-navigation-drawer,
+  .v-footer,
+  .v-btn,
+  .v-alert,
+  .no-print {
+    display: none !important;
+  }
+
+  body,
+  .v-application,
+  .v-main,
+  .v-container {
+    background: #ffffff !important;
+    background-color: #ffffff !important;
+    color: #000000 !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    width: 100% !important;
+    max-width: 100% !important;
+  }
+
+  .v-card {
+    box-shadow: none !important;
+    border: 1px solid #ddd !important;
+    background: #ffffff !important;
+    break-inside: avoid;
+  }
+
+  * {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+}
+</style>
