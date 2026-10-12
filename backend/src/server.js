@@ -81,6 +81,12 @@ app.get('/api/teachers', catalogController.getTeachers);
 app.post('/api/schedules', requireRole(['Coordinador', 'Administrador']), scheduleController.createSchedule);
 app.get('/api/schedules/coordinator', requireRole(['Coordinador', 'Administrador']), scheduleController.getCoordinatorSchedules);
 app.delete('/api/schedules/:id', requireRole(['Coordinador', 'Administrador']), scheduleController.deleteSchedule);
+app.post(
+  '/api/schedules/upload-excel',
+  requireRole(['Coordinador', 'Administrador']),
+  scheduleController.uploadExcelMiddleware,
+  scheduleController.uploadExcelSchedule
+);
 
 // Módulo Docente: Consulta de Horario y Grupos
 app.get('/api/schedules/teacher', requireRole(['Profesor', 'Coordinador', 'Administrador']), scheduleController.getTeacherSchedules);
