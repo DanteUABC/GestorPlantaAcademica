@@ -1,4 +1,4 @@
-const { query } = require('../db');
+const { query, pool } = require('../db');
 
 // Helper to convert 'HH:MM' string to minutes from 00:00 for easy comparison
 function timeToMinutes(t) {
@@ -256,7 +256,90 @@ const uploadExcelMiddleware = (req, res, next) => {
   });
 };
 
+// -------------------------------------------------------------
+// CARGA MASIVA DE HORARIOS (.XLSX) - PARSER E INSERCIÓN TRANSACCIONAL
+// -------------------------------------------------------------
+
+const XLSX = require('xlsx');
+const crypto = require('crypto');
+
+const MAX_EXCEL_ROWS = 2000;
+
+// Normaliza texto: minúsculas, sin acentos ni símbolos (para encabezados, días y búsquedas)
+const normalizeKey = (v) =>
+  String(v ?? '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, '');
+
+// Encabezado normalizado -> campo interno
+const HEADER_ALIASES = {
+  codigomateria: 'subject_code',
+  codigo: 'subject_code',
+  correoprofesor: 'teacher_email',
+  correodocente: 'teacher_email',
+  correomaestro: 'teacher_email',
+  aula: 'classroom_name',
+  salon: 'classroom_name',
+  dia: 'day_of_week',
+  horainicio: 'start_time',
+  inicio: 'start_time',
+  horafin: 'end_time',
+  fin: 'end_time',
+  cupo: 'max_students',
+  maxalumnos: 'max_students'
+};
+
+const REQUIRED_FIELDS = {
+  subject_code: 'Código Materia',
+  teacher_email: 'Correo Profesor',
+  classroom_name: 'Aula',
+  day_of_week: 'Día',
+  start_time: 'Hora Inicio',
+  end_time: 'Hora Fin'
+};
+
+const DAY_NAMES = {
+  lunes: 'Lunes',
+  martes: 'Martes',
+  miercoles: 'Miércoles',
+  jueves: 'Jueves',
+  viernes: 'Viernes',
+  sabado: 'Sábado'
+};
+
+// Acepta 'H:MM', 'HH:MM', 'HH:MM:SS' o la fracción de día que guarda Excel para celdas de hora
+function parseExcelTime(value) {
+  let minutes;
+  if (typeof value === 'number') {
+    if (value < 0 || value >= 1) return null;
+    minutes = Math.round(value * 24 * 60);
+  } else {
+    const m = String(value ?? '').trim().match(/^(\d{1,2}):(\d{2})(?::\d{2})?$/);
+    if (!m) return null;
+    minutes = Number(m[1]) * 60 + Number(m[2]);
+  }
+  if (minutes >= 24 * 60) return null;
+  const hh = String(Math.floor(minutes / 60)).padStart(2, '0');
+  const mm = String(minutes % 60).padStart(2, '0');
+  return `${hh}:${mm}`;
+}
+
+// Convierte las filas crudas de la hoja a objetos con los campos internos
+function mapExcelRows(rawRows) {
+  return rawRows.map((raw) => {
+    const mapped = {};
+    for (const [header, value] of Object.entries(raw)) {
+      const field = HEADER_ALIASES[normalizeKey(header)];
+      if (field && mapped[field] === undefined) mapped[field] = value;
+    }
+    return mapped;
+  });
+}
+
 async function uploadExcelSchedule(req, res) {
+  let client;
   try {
     if (!req.file) {
       return res.status(400).json({
@@ -265,19 +348,177 @@ async function uploadExcelSchedule(req, res) {
       });
     }
 
-    // TODO (Subtarea 2 & 3): El siguiente desarrollador implementará aquí el parser del buffer Excel y las transacciones en PostgreSQL.
-    return res.status(200).json({
+    // Seguridad multi-tenant: sin tenant no se inserta nada
+    const tenantId = req.tenant_id;
+    if (!tenantId) {
+      return res.status(403).json({
+        success: false,
+        error: 'No se pudo determinar la institución (tenant) del usuario'
+      });
+    }
+
+    // 1. Parseo del buffer en memoria
+    let rawRows;
+    try {
+      const workbook = XLSX.read(req.file.buffer, { type: 'buffer' });
+      const sheet = workbook.Sheets[workbook.SheetNames[0]];
+      if (!sheet) throw new Error('hoja vacía');
+      rawRows = XLSX.utils.sheet_to_json(sheet, { defval: '', raw: true });
+    } catch (parseErr) {
+      return res.status(400).json({
+        success: false,
+        error: 'No se pudo leer el archivo Excel. Verifique que sea un .xlsx válido.',
+        details: parseErr.message
+      });
+    }
+
+    if (rawRows.length === 0) {
+      return res.status(400).json({ success: false, error: 'El archivo Excel no contiene filas de datos.' });
+    }
+    if (rawRows.length > MAX_EXCEL_ROWS) {
+      return res.status(400).json({
+        success: false,
+        error: `El archivo excede el máximo de ${MAX_EXCEL_ROWS} filas por carga.`
+      });
+    }
+
+    // 2. Mapeo de encabezados -> columnas de la tabla schedules
+    const presentFields = new Set();
+    Object.keys(rawRows[0]).forEach((h) => {
+      const f = HEADER_ALIASES[normalizeKey(h)];
+      if (f) presentFields.add(f);
+    });
+    const missing = Object.keys(REQUIRED_FIELDS).filter((f) => !presentFields.has(f));
+    if (missing.length > 0) {
+      return res.status(400).json({
+        success: false,
+        error: `Faltan columnas obligatorias en el Excel: ${missing.map((f) => REQUIRED_FIELDS[f]).join(', ')}`
+      });
+    }
+    const rows = mapExcelRows(rawRows);
+
+    // 3. Transacción SQL: todo o nada
+    client = await pool.connect();
+    await client.query('BEGIN');
+
+    // Catálogos del tenant (aislamiento multi-tenant en cada consulta)
+    const subjectsRes = await client.query('SELECT id, code FROM subjects WHERE tenant_id = $1', [tenantId]);
+    const teachersRes = await client.query(
+      `SELECT u.id, u.email, u.name FROM users u
+       JOIN roles r ON u.role_id = r.id
+       WHERE u.tenant_id = $1 AND r.name = 'Profesor'`,
+      [tenantId]
+    );
+    const classroomsRes = await client.query('SELECT id, name, capacity FROM classrooms WHERE tenant_id = $1', [tenantId]);
+
+    const subjectsByCode = new Map(subjectsRes.rows.map((s) => [normalizeKey(s.code), s]));
+    const teachersByEmail = new Map(teachersRes.rows.map((t) => [String(t.email).trim().toLowerCase(), t]));
+    const classroomsByName = new Map(classroomsRes.rows.map((c) => [normalizeKey(c.name), c]));
+
+    const errors = [];
+    let inserted = 0;
+
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i];
+      const fila = i + 2; // +1 por base 1, +1 por la fila de encabezados
+      const rowErrors = [];
+
+      const subject = subjectsByCode.get(normalizeKey(row.subject_code));
+      if (!subject) rowErrors.push(`Materia con código "${row.subject_code}" no existe en esta institución`);
+
+      const teacher = teachersByEmail.get(String(row.teacher_email ?? '').trim().toLowerCase());
+      if (!teacher) rowErrors.push(`Profesor con correo "${row.teacher_email}" no existe en esta institución o no tiene rol de Profesor`);
+
+      const classroom = classroomsByName.get(normalizeKey(row.classroom_name));
+      if (!classroom) rowErrors.push(`Aula "${row.classroom_name}" no existe en esta institución`);
+
+      const day = DAY_NAMES[normalizeKey(row.day_of_week)];
+      if (!day) rowErrors.push(`Día "${row.day_of_week}" no es válido (use Lunes a Sábado)`);
+
+      const startTime = parseExcelTime(row.start_time);
+      const endTime = parseExcelTime(row.end_time);
+      if (!startTime) rowErrors.push(`Hora de inicio "${row.start_time}" no es válida (use HH:MM)`);
+      if (!endTime) rowErrors.push(`Hora de fin "${row.end_time}" no es válida (use HH:MM)`);
+      if (startTime && endTime && startTime >= endTime) {
+        rowErrors.push('La hora de inicio debe ser anterior a la hora de fin');
+      }
+
+      let maxStudents = classroom ? classroom.capacity : 30;
+      if (row.max_students !== undefined && row.max_students !== '') {
+        const requested = Number(row.max_students);
+        if (!Number.isInteger(requested) || requested <= 0) {
+          rowErrors.push(`Cupo "${row.max_students}" no es válido (entero mayor a 0)`);
+        } else if (classroom) {
+          maxStudents = Math.min(requested, classroom.capacity);
+        }
+      }
+
+      if (rowErrors.length > 0) {
+        rowErrors.forEach((error) => errors.push({ fila, error }));
+        continue;
+      }
+
+      // Anti-empalme dentro de la transacción: también ve las filas ya insertadas de este mismo archivo
+      const teacherConflict = await client.query(
+        `SELECT start_time, end_time FROM schedules
+         WHERE tenant_id = $1 AND teacher_id = $2 AND day_of_week = $3
+           AND start_time < $4 AND end_time > $5 LIMIT 1`,
+        [tenantId, teacher.id, day, endTime, startTime]
+      );
+      if (teacherConflict.rows.length > 0) {
+        const c = teacherConflict.rows[0];
+        errors.push({ fila, error: `Empalme de Profesor: ${teacher.name} ya tiene clase el ${day} de ${c.start_time} a ${c.end_time}` });
+        continue;
+      }
+
+      const classroomConflict = await client.query(
+        `SELECT start_time, end_time FROM schedules
+         WHERE tenant_id = $1 AND classroom_id = $2 AND day_of_week = $3
+           AND start_time < $4 AND end_time > $5 LIMIT 1`,
+        [tenantId, classroom.id, day, endTime, startTime]
+      );
+      if (classroomConflict.rows.length > 0) {
+        const c = classroomConflict.rows[0];
+        errors.push({ fila, error: `Empalme de Aula: "${classroom.name}" ya está reservada el ${day} de ${c.start_time} a ${c.end_time}` });
+        continue;
+      }
+
+      await client.query(
+        `INSERT INTO schedules (id, tenant_id, subject_id, teacher_id, classroom_id, day_of_week, start_time, end_time, max_students)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+        ['sch-' + crypto.randomUUID(), tenantId, subject.id, teacher.id, classroom.id, day, startTime, endTime, maxStudents]
+      );
+      inserted++;
+    }
+
+    // Si cualquier fila falló, no se guarda ninguna
+    if (errors.length > 0) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({
+        success: false,
+        error: 'El archivo contiene errores. No se guardó ningún registro.',
+        errors
+      });
+    }
+
+    await client.query('COMMIT');
+    return res.status(201).json({
       success: true,
-      message: 'Archivo .xlsx recibido correctamente',
+      message: 'Horarios importados correctamente',
       filename: req.file.originalname,
-      size: req.file.size
+      inserted
     });
   } catch (err) {
+    if (client) {
+      try { await client.query('ROLLBACK'); } catch (_) { /* conexión ya cerrada */ }
+    }
     return res.status(500).json({
       success: false,
       error: 'Error al procesar la carga del archivo Excel',
       details: err.message
     });
+  } finally {
+    if (client) client.release();
   }
 }
 
