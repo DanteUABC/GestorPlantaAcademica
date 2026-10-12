@@ -223,9 +223,69 @@ async function getTeacherSchedules(req, res) {
 }
 
 
+// -------------------------------------------------------------
+// CARGA MASIVA DE HORARIOS (.XLSX) - STUB / HANDOFF
+// -------------------------------------------------------------
+
+const multer = require('multer');
+
+// Almacenamiento en memoria para entregar el buffer al parser de Excel (Subtareas 2 y 3)
+const storage = multer.memoryStorage();
+
+const excelFilter = (req, file, cb) => {
+  const isXlsx = file.originalname && file.originalname.toLowerCase().endsWith('.xlsx');
+  if (isXlsx) {
+    cb(null, true);
+  } else {
+    cb(new Error('Solo se permiten archivos en formato .xlsx'), false);
+  }
+};
+
+const upload = multer({
+  storage,
+  fileFilter: excelFilter,
+  limits: { fileSize: 10 * 1024 * 1024 }
+});
+
+const uploadExcelMiddleware = (req, res, next) => {
+  upload.single('file')(req, res, (err) => {
+    if (err) {
+      return res.status(400).json({ success: false, error: err.message });
+    }
+    next();
+  });
+};
+
+async function uploadExcelSchedule(req, res) {
+  try {
+    if (!req.file) {
+      return res.status(400).json({
+        success: false,
+        error: 'Debe adjuntar un archivo en formato .xlsx'
+      });
+    }
+
+    // TODO (Subtarea 2 & 3): El siguiente desarrollador implementará aquí el parser del buffer Excel y las transacciones en PostgreSQL.
+    return res.status(200).json({
+      success: true,
+      message: 'Archivo .xlsx recibido correctamente',
+      filename: req.file.originalname,
+      size: req.file.size
+    });
+  } catch (err) {
+    return res.status(500).json({
+      success: false,
+      error: 'Error al procesar la carga del archivo Excel',
+      details: err.message
+    });
+  }
+}
+
 module.exports = {
   createSchedule,
   getCoordinatorSchedules,
   deleteSchedule,
-  getTeacherSchedules
+  getTeacherSchedules,
+  uploadExcelMiddleware,
+  uploadExcelSchedule
 };
