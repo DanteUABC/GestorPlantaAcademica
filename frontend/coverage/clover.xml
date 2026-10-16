@@ -1,10 +1,10 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<coverage generated="1791247942103" clover="3.2.0">
-  <project timestamp="1791247942103" name="All files">
+<coverage generated="1791248180935" clover="3.2.0">
+  <project timestamp="1791248180935" name="All files">
     <metrics statements="211" coveredstatements="96" conditionals="180" coveredconditionals="89" methods="69" coveredmethods="31" elements="460" coveredelements="216" complexity="0" loc="211" ncloc="211" packages="4" files="4" classes="4"/>
     <package name="api">
       <metrics statements="20" coveredstatements="8" conditionals="16" coveredconditionals="2" methods="4" coveredmethods="1"/>
-      <file name="client.js" path="/home/kevin1563/Documents/GestorPlantaAcademica/frontend/src/api/client.js">
+      <file name="client.js" path="C:\Users\dnt6\OneDrive\Documentos\GestorPlantaAcademica\frontend\src\api\client.js">
         <metrics statements="20" coveredstatements="8" conditionals="16" coveredconditionals="2" methods="4" coveredmethods="1"/>
         <line num="3" count="2" type="stmt"/>
         <line num="9" count="2" type="stmt"/>
@@ -30,7 +30,7 @@
     </package>
     <package name="router">
       <metrics statements="11" coveredstatements="10" conditionals="10" coveredconditionals="8" methods="1" coveredmethods="1"/>
-      <file name="index.js" path="/home/kevin1563/Documents/GestorPlantaAcademica/frontend/src/router/index.js">
+      <file name="index.js" path="C:\Users\dnt6\OneDrive\Documentos\GestorPlantaAcademica\frontend\src\router\index.js">
         <metrics statements="11" coveredstatements="10" conditionals="10" coveredconditionals="8" methods="1" coveredmethods="1"/>
         <line num="8" count="1" type="stmt"/>
         <line num="29" count="1" type="stmt"/>
@@ -47,7 +47,7 @@
     </package>
     <package name="stores">
       <metrics statements="70" coveredstatements="37" conditionals="52" coveredconditionals="23" methods="14" coveredmethods="8"/>
-      <file name="authStore.js" path="/home/kevin1563/Documents/GestorPlantaAcademica/frontend/src/stores/authStore.js">
+      <file name="authStore.js" path="C:\Users\dnt6\OneDrive\Documentos\GestorPlantaAcademica\frontend\src\stores\authStore.js">
         <metrics statements="70" coveredstatements="37" conditionals="52" coveredconditionals="23" methods="14" coveredmethods="8"/>
         <line num="5" count="3" type="stmt"/>
         <line num="6" count="7" type="stmt"/>
@@ -123,7 +123,7 @@
     </package>
     <package name="views">
       <metrics statements="110" coveredstatements="41" conditionals="102" coveredconditionals="56" methods="50" coveredmethods="21"/>
-      <file name="LoginView.vue" path="/home/kevin1563/Documents/GestorPlantaAcademica/frontend/src/views/LoginView.vue">
+      <file name="LoginView.vue" path="C:\Users\dnt6\OneDrive\Documentos\GestorPlantaAcademica\frontend\src\views\LoginView.vue">
         <metrics statements="110" coveredstatements="41" conditionals="102" coveredconditionals="56" methods="50" coveredmethods="21"/>
         <line num="2" count="2" type="stmt"/>
         <line num="4" count="2" type="stmt"/>

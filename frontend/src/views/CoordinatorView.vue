@@ -289,37 +289,67 @@
           </v-alert>
 
           <v-form @submit.prevent="submitSchedule">
-            <!-- Materia -->
-            <v-select
+            <!-- Materia (con barra de búsqueda) -->
+            <v-autocomplete
               v-model="newSchedule.subject_id"
               :items="subjects"
               item-title="name"
               item-value="id"
               label="Materia *"
+              placeholder="Buscar materia por nombre o clave..."
               variant="outlined"
               density="comfortable"
-              prepend-inner-icon="mdi-book-open-page-variant"
+              prepend-inner-icon="mdi-magnify"
               class="mb-2"
+              clearable
+              auto-select-first
+              :custom-filter="filterSubjects"
               :rules="[v => !!v || 'Seleccione una materia']"
+              no-data-text="No se encontraron materias que coincidan con la búsqueda"
             >
               <template #item="{ props, item }">
-                <v-list-item v-bind="props" :subtitle="`Código: ${item.raw.code} | Créditos: ${item.raw.credits}`"></v-list-item>
+                <v-list-item
+                  v-bind="props"
+                  :title="item.raw.name"
+                  :subtitle="`Código: ${item.raw.code} | Créditos: ${item.raw.credits}`"
+                >
+                  <template #prepend>
+                    <v-icon icon="mdi-book-open-page-variant" class="mr-2 text-primary" size="small"></v-icon>
+                  </template>
+                </v-list-item>
               </template>
-            </v-select>
+            </v-autocomplete>
 
-            <!-- Docente -->
-            <v-select
+            <!-- Maestro / Docente (con barra de búsqueda) -->
+            <v-autocomplete
               v-model="newSchedule.teacher_id"
               :items="teachers"
               item-title="name"
               item-value="id"
-              label="Profesor Asignado *"
+              label="Maestro *"
+              placeholder="Buscar maestro por nombre, nómina o correo..."
               variant="outlined"
               density="comfortable"
-              prepend-inner-icon="mdi-account-tie"
+              prepend-inner-icon="mdi-magnify"
               class="mb-2"
-              :rules="[v => !!v || 'Seleccione un docente']"
-            ></v-select>
+              clearable
+              auto-select-first
+              :custom-filter="filterTeachers"
+              :rules="[v => !!v || 'Seleccione un maestro']"
+              no-data-text="No se encontraron maestros que coincidan con la búsqueda"
+            >
+              <template #item="{ props, item }">
+                <v-list-item
+                  v-bind="props"
+                  :title="item.raw.name"
+                  :subtitle="item.raw.email ? `${item.raw.email}${item.raw.identifier ? ' • ID: ' + item.raw.identifier : ''}` : (item.raw.identifier ? 'ID: ' + item.raw.identifier : '')"
+                >
+                  <template #prepend>
+                    <v-icon icon="mdi-account-tie" class="mr-2 text-secondary" size="small"></v-icon>
+                  </template>
+                </v-list-item>
+              </template>
+            </v-autocomplete>
 
             <!-- Aula Física -->
             <v-select
@@ -499,14 +529,36 @@ function getSchedulesByDay(day) {
   return filteredSchedules.value.filter(s => s.day_of_week === day);
 }
 
+function filterSubjects(valueText, queryText, item) {
+  if (!queryText) return true;
+  const q = queryText.toLowerCase().trim();
+  const raw = item?.raw || {};
+  const name = String(raw.name || valueText || '').toLowerCase();
+  const code = String(raw.code || '').toLowerCase();
+  return name.includes(q) || code.includes(q);
+}
+
+function filterTeachers(valueText, queryText, item) {
+  if (!queryText) return true;
+  const q = queryText.toLowerCase().trim();
+  const raw = item?.raw || {};
+  const name = String(raw.name || valueText || '').toLowerCase();
+  const email = String(raw.email || '').toLowerCase();
+  const identifier = String(raw.identifier || '').toLowerCase();
+  return name.includes(q) || email.includes(q) || identifier.includes(q);
+}
+
 function openCreateDialog() {
   conflictError.value = '';
-  if (subjects.value.length > 0) newSchedule.value.subject_id = subjects.value[0].id;
-  if (teachers.value.length > 0) newSchedule.value.teacher_id = teachers.value[0].id;
-  if (classrooms.value.length > 0) {
-    newSchedule.value.classroom_id = classrooms.value[0].id;
-    newSchedule.value.max_students = classrooms.value[0].capacity;
-  }
+  newSchedule.value = {
+    subject_id: null,
+    teacher_id: null,
+    classroom_id: classrooms.value.length > 0 ? classrooms.value[0].id : null,
+    day_of_week: 'Lunes',
+    start_time: '08:00',
+    end_time: '10:00',
+    max_students: classrooms.value.length > 0 ? classrooms.value[0].capacity : 30
+  };
   createDialog.value = true;
 }
 
