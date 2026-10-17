@@ -61,6 +61,15 @@
           <div class="text-caption text-blue-lighten-4">{{ authStore.user?.email }}</div>
         </div>
         <v-chip
+          v-if="authStore.user?.identifier"
+          color="white"
+          variant="outlined"
+          class="font-weight-bold mr-2 text-white"
+          size="small"
+        >
+          ID: {{ authStore.user.identifier }}
+        </v-chip>
+        <v-chip
           :color="getRoleColor(authStore.userRole)"
           variant="flat"
           class="font-weight-bold"

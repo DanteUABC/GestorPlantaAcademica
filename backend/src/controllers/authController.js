@@ -2,6 +2,7 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { pool, query } = require('../db');
 const { JWT_SECRET, JWT_REFRESH_SECRET } = require('../middleware/auth');
+const { getNextIdentifier } = require('../utils/identifierHelper');
 
 // Endpoint: Seleccionar Tenant (Inyección de rol desde BD)
 exports.selectTenant = async (req, res) => {
@@ -217,11 +218,12 @@ exports.register = async (req, res) => {
 
     const passwordHash = await bcrypt.hash(password, 10);
     const userId = 'usr-' + Date.now();
+    const finalIdentifier = await getNextIdentifier(role.nombre || role.name, pool);
 
     await query.run(
       `INSERT INTO users (id, tenant_id, name, email, password_hash, role_id, identifier)
        VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      [userId, finalTenantId, name.trim(), email.toLowerCase().trim(), passwordHash, role.id, identifier || '']
+      [userId, finalTenantId, name.trim(), email.toLowerCase().trim(), passwordHash, role.id, finalIdentifier]
     );
 
     const tokenPayload = {
@@ -232,7 +234,8 @@ exports.register = async (req, res) => {
       role_name: role.nombre || role.name,
       role_id: role.id,
       email: email.toLowerCase().trim(),
-      name: name.trim()
+      name: name.trim(),
+      identifier: finalIdentifier
     };
 
     const accessToken = jwt.sign(tokenPayload, JWT_SECRET, { expiresIn: '15m' });
@@ -253,7 +256,7 @@ exports.register = async (req, res) => {
       user: {
         ...tokenPayload,
         tenant_name: tenant.name,
-        identifier
+        identifier: finalIdentifier
       }
     });
   } catch (err) {

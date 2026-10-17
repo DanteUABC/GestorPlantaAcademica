@@ -187,13 +187,15 @@
             ></v-text-field>
 
             <v-text-field
-              v-model="registerForm.identifier"
-              label="Nómina o Identificador Docente"
-              placeholder="Ej: DOC-101 ó EMP-001"
+              :model-value="generatedIdPreview"
+              label="ID Institucional Asignado"
               variant="outlined"
               density="comfortable"
-              prepend-inner-icon="mdi-card-account-details-outline"
+              prepend-inner-icon="mdi-badge-account-horizontal-outline"
               class="mb-2"
+              readonly
+              hint="Se guardará en la base de datos automáticamente sin repetirse."
+              persistent-hint
             ></v-text-field>
 
             <v-text-field
@@ -254,7 +256,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue';
+import { ref, computed, onMounted } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import { useAuthStore } from '../stores/authStore';
 import api from '../api/client';
@@ -292,6 +294,12 @@ const registerForm = ref({
   email: '',
   password: '',
   role_name: 'Profesor'
+});
+
+const generatedIdPreview = computed(() => {
+  return registerForm.value.role_name === 'Coordinador'
+    ? 'ID: C### (Asignación automática C001..C999)'
+    : 'ID: M### (Asignación automática M001..M999)';
 });
 
 onMounted(async () => {

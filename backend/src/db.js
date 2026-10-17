@@ -1,5 +1,7 @@
+require('dotenv').config();
 const { Pool } = require('pg');
 const bcrypt = require('bcryptjs');
+const { migrateExistingUserIdentifiers } = require('./utils/identifierHelper');
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL || 'postgresql://postgres:postgres@localhost:5432/gestor_planta'
@@ -149,6 +151,7 @@ async function initDatabase() {
 
   await seedInitialData();
   await query.exec('UPDATE roles SET nombre = name WHERE nombre IS NULL;');
+  await migrateExistingUserIdentifiers(pool);
 }
 
 async function seedInitialData() {
@@ -253,7 +256,7 @@ async function seedInitialData() {
       email: 'coordinador@pavilion.com',
       password_hash: defaultPasswordHash,
       role_id: 'role-coord',
-      identifier: 'EMP-001'
+      identifier: 'C001'
     },
     {
       id: 'usr-prof-1',
@@ -262,7 +265,7 @@ async function seedInitialData() {
       email: 'elena.salgado@pavilion.com',
       password_hash: defaultPasswordHash,
       role_id: 'role-teacher',
-      identifier: 'DOC-101'
+      identifier: 'M001'
     },
     {
       id: 'usr-prof-2',
@@ -271,7 +274,7 @@ async function seedInitialData() {
       email: 'carlos.vega@pavilion.com',
       password_hash: defaultPasswordHash,
       role_id: 'role-teacher',
-      identifier: 'DOC-102'
+      identifier: 'M002'
     }
   ];
 

@@ -2,6 +2,7 @@ const passport = require('passport');
 const GoogleStrategy = require('passport-google-oauth20').Strategy;
 const MicrosoftStrategy = require('passport-microsoft').Strategy;
 const { pool } = require('../db');
+const { getNextIdentifier } = require('../utils/identifierHelper');
 
 async function linkOrCreateUser(provider, providerId, email, name) {
   const cleanEmail = (email || '').toLowerCase().trim();
@@ -28,11 +29,12 @@ async function linkOrCreateUser(provider, providerId, email, name) {
   const newUserId = 'usr-oauth-' + Date.now();
   const defaultRoleId = 'role-teacher';
   const defaultTenantId = 'tenant-itc';
+  const autoIdentifier = await getNextIdentifier('Profesor', pool);
 
   await pool.query(
-    `INSERT INTO users (id, tenant_id, name, email, ${providerColumn}, role_id)
-     VALUES ($1, $2, $3, $4, $5, $6)`,
-    [newUserId, defaultTenantId, name || 'Usuario SSO', cleanEmail, providerId, defaultRoleId]
+    `INSERT INTO users (id, tenant_id, name, email, ${providerColumn}, role_id, identifier)
+     VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+    [newUserId, defaultTenantId, name || 'Usuario SSO', cleanEmail, providerId, defaultRoleId, autoIdentifier]
   );
 
   const newUser = await pool.query('SELECT * FROM users WHERE id = $1', [newUserId]);
