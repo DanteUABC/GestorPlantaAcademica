@@ -67,4 +67,30 @@ describe('authStore - Gestión de Sesión', () => {
         expect(store.tenantId).toBeNull();
         expect(store.userRole).toBeNull();
     });
+
+    it('debe actualizar el estado al completar registro externo exitosamente', async () => {
+        const store = useAuthStore();
+        
+        api.post.mockResolvedValueOnce({
+            data: { accessToken: 'jwt123', user: { id: 'usr-ext-1', name: 'Externo User', role_name: 'Profesor' } }
+        });
+
+        await store.completeExternalRegistration({
+            token: 'regToken123',
+            nombre: 'Externo',
+            apellidos: 'User',
+            rol_id: 2,
+            tenant_id: 'tenant-itc'
+        });
+        
+        expect(api.post).toHaveBeenCalledWith('/auth/external-register', {
+            token: 'regToken123',
+            nombre: 'Externo',
+            apellidos: 'User',
+            rol_id: 2,
+            tenant_id: 'tenant-itc'
+        });
+        expect(store.isAuthenticated).toBe(true);
+        expect(store.accessToken).toBe('jwt123');
+    });
 });

@@ -135,15 +135,68 @@ async function initDatabase() {
     CREATE OR REPLACE VIEW usuarios_roles AS SELECT id AS usuario_id, tenant_id, role_id AS rol_id FROM users;
   `);
 
-  // Migraciones incrementales sobre PostgreSQL
+  // Migraciones incrementales sobre PostgreSQL para soporte de usuarios externos y vistas
   try {
     await query.exec(`
       ALTER TABLE roles ADD COLUMN IF NOT EXISTS nombre VARCHAR(100);
       UPDATE roles SET nombre = name WHERE nombre IS NULL;
       ALTER TABLE users ALTER COLUMN password_hash DROP NOT NULL;
+      ALTER TABLE users ALTER COLUMN name DROP NOT NULL;
+      ALTER TABLE users ALTER COLUMN id SET DEFAULT ('usr-' || substr(gen_random_uuid()::text, 1, 16));
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS nombre VARCHAR(255);
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS apellidos VARCHAR(255);
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS identificador VARCHAR(100);
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS provider VARCHAR(50);
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS provider_id VARCHAR(255);
       ALTER TABLE users ADD COLUMN IF NOT EXISTS google_id VARCHAR(255) UNIQUE;
       ALTER TABLE users ADD COLUMN IF NOT EXISTS microsoft_id VARCHAR(255) UNIQUE;
       UPDATE users SET email = REPLACE(email, '@itc.edu', '@pavilion.com') WHERE email LIKE '%@itc.edu';
+
+      -- Vistas y reglas para compatibilidad total
+      DROP VIEW IF EXISTS usuarios CASCADE;
+      CREATE OR REPLACE VIEW usuarios AS SELECT * FROM users;
+      DROP VIEW IF EXISTS usuarios_roles CASCADE;
+      CREATE OR REPLACE VIEW usuarios_roles AS SELECT id AS usuario_id, tenant_id, role_id AS rol_id FROM users;
+      CREATE OR REPLACE RULE usuarios_roles_insert AS
+        ON INSERT TO usuarios_roles
+        DO INSTEAD
+          UPDATE users 
+          SET role_id = NEW.rol_id, tenant_id = NEW.tenant_id 
+          WHERE id = NEW.usuario_id;
+    `);
+
+    // Sincronización automática de campos en users
+    await query.exec(`
+      CREATE OR REPLACE FUNCTION sync_user_fields()
+      RETURNS TRIGGER AS $$
+      BEGIN
+        IF NEW.identifier IS NULL AND NEW.identificador IS NOT NULL THEN
+          NEW.identifier := NEW.identificador;
+        ELSIF NEW.identificador IS NULL AND NEW.identifier IS NOT NULL THEN
+          NEW.identificador := NEW.identifier;
+        END IF;
+
+        IF NEW.name IS NULL AND (NEW.nombre IS NOT NULL OR NEW.apellidos IS NOT NULL) THEN
+          NEW.name := TRIM(CONCAT(COALESCE(NEW.nombre, ''), ' ', COALESCE(NEW.apellidos, '')));
+        ELSIF NEW.nombre IS NULL AND NEW.name IS NOT NULL THEN
+          NEW.nombre := NEW.name;
+        END IF;
+
+        IF NEW.provider = 'google' AND NEW.provider_id IS NOT NULL AND NEW.google_id IS NULL THEN
+          NEW.google_id := NEW.provider_id;
+        ELSIF NEW.provider = 'microsoft' AND NEW.provider_id IS NOT NULL AND NEW.microsoft_id IS NULL THEN
+          NEW.microsoft_id := NEW.provider_id;
+        END IF;
+
+        RETURN NEW;
+      END;
+      $$ LANGUAGE plpgsql;
+
+      DROP TRIGGER IF EXISTS trg_sync_user_fields ON users;
+      CREATE TRIGGER trg_sync_user_fields
+      BEFORE INSERT OR UPDATE ON users
+      FOR EACH ROW
+      EXECUTE FUNCTION sync_user_fields();
     `);
   } catch (migErr) {
     console.warn('Nota en migraciones incrementales:', migErr.message);

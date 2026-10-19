@@ -2,7 +2,7 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { pool, query } = require('../db');
 const { JWT_SECRET, JWT_REFRESH_SECRET } = require('../middleware/auth');
-const { getNextIdentifier } = require('../utils/identifierHelper');
+const { getNextIdentifier, generateIdentifier } = require('../utils/identifierHelper');
 
 // Endpoint: Seleccionar Tenant (Inyección de rol desde BD)
 exports.selectTenant = async (req, res) => {
@@ -114,20 +114,43 @@ exports.oauthCallback = async (req, res) => {
       return res.redirect(`${process.env.FRONTEND_URL || 'http://localhost:3000'}/login?error=oauth_failed`);
     }
 
-    const identityToken = jwt.sign(
-      {
-        sub: user.id,
-        id: user.id,
-        email: user.email,
-        name: user.name,
-        tenant_id: user.tenant_id
-      },
-      JWT_SECRET,
-      { expiresIn: '10m' }
-    );
+    if (user.isNew) {
+      // Generar un token temporal para proteger la fase de registro (15m)
+      const regToken = jwt.sign(
+        { email: user.email, provider: user.provider, provider_id: user.provider_id },
+        process.env.JWT_SECRET || JWT_SECRET,
+        { expiresIn: '15m' }
+      );
+      // Redirigir al frontend a la vista de completar registro
+      const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+      return res.redirect(`${frontendUrl}/register/external?token=${regToken}&email=${encodeURIComponent(user.email)}`);
+    }
+
+    // Lógica para usuarios que ya estaban registrados (emisión de accessToken/refreshToken)
+    const tokenPayload = {
+      sub: user.id,
+      id: user.id,
+      tenant_id: user.tenant_id,
+      role: user.role_name || user.role_id,
+      role_name: user.role_name || user.role_id,
+      role_id: user.role_id,
+      email: user.email,
+      name: user.name || user.nombre,
+      identifier: user.identifier || user.identificador
+    };
+
+    const accessToken = jwt.sign(tokenPayload, process.env.JWT_SECRET || JWT_SECRET, { expiresIn: '15m' });
+    const refreshToken = jwt.sign({ sub: user.id, tenant_id: user.tenant_id }, process.env.JWT_REFRESH_SECRET || JWT_REFRESH_SECRET, { expiresIn: '7d' });
+
+    res.cookie('refresh_token', refreshToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'strict',
+      maxAge: 7 * 24 * 60 * 60 * 1000
+    });
 
     const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
-    return res.redirect(`${frontendUrl}/login?token=${identityToken}`);
+    return res.redirect(`${frontendUrl}/login?token=${accessToken}`);
   } catch (err) {
     console.error('Error en OAuth callback:', err);
     return res.redirect(`${process.env.FRONTEND_URL || 'http://localhost:3000'}/login?error=server_error`);
@@ -369,6 +392,103 @@ exports.getMe = async (req, res) => {
     res.json(user);
   } catch (err) {
     res.status(500).json({ error: 'Error al obtener perfil', details: err.message });
+  }
+};
+
+// 2B. Nuevo endpoint POST /api/auth/external-register
+exports.completeExternalRegistration = async (req, res) => {
+  const { token, nombre, apellidos, rol_id, tenant_id } = req.body;
+
+  if (!token) {
+    return res.status(400).json({ error: 'Token de registro inválido o expirado' });
+  }
+
+  try {
+    // Validar que el token temporal de OAuth sea legítimo
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || JWT_SECRET);
+
+    // Asignar el prefijo correcto usando la función de IDs (C001..C999 o M001..M999)
+    // (Asumiendo que rol_id determina si es docente o coordinador)
+    const tipoRol = (rol_id === 1 || rol_id === '1' || rol_id === 'role-coord' || String(rol_id || '').toLowerCase().includes('coord')) 
+      ? 'coordinador' 
+      : 'profesor'; 
+    const identificador = await generateIdentifier(tipoRol);
+
+    // Mapear rol_id al ID en BD
+    const dbRoleId = tipoRol === 'coordinador' ? 'role-coord' : 'role-teacher';
+
+    // Mapear tenant_id al tenant en BD
+    let dbTenantId = tenant_id;
+    if (!dbTenantId || dbTenantId === 1 || dbTenantId === '1') {
+      dbTenantId = 'tenant-itc';
+    }
+
+    const fullName = `${nombre || ''} ${apellidos || ''}`.trim() || 'Usuario Externo';
+
+    // Insertar en la BD (Nota: sin contraseña, ya que es login externo)
+    const insertUser = await pool.query(
+      `INSERT INTO usuarios (identificador, nombre, apellidos, email, provider, provider_id) 
+       VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
+      [identificador, nombre, apellidos, decoded.email, decoded.provider, decoded.provider_id]
+    );
+
+    const userId = insertUser.rows[0].id;
+
+    // Insertar relación de rol y tenant
+    await pool.query(
+      `INSERT INTO usuarios_roles (usuario_id, rol_id, tenant_id) VALUES ($1, $2, $3)`,
+      [userId, dbRoleId, dbTenantId]
+    );
+
+    // Consultar el usuario creado completo con sus relaciones
+    const userRes = await pool.query(
+      `SELECT u.*, COALESCE(r.nombre, r.name) AS role_name, t.name AS tenant_name
+       FROM users u
+       LEFT JOIN roles r ON u.role_id = r.id
+       LEFT JOIN tenants t ON u.tenant_id = t.id
+       WHERE u.id = $1`,
+      [userId]
+    );
+    const user = userRes.rows[0] || {};
+    const roleName = user.role_name || (tipoRol === 'coordinador' ? 'Coordinador' : 'Profesor');
+
+    const tokenPayload = {
+      sub: user.id || userId,
+      id: user.id || userId,
+      tenant_id: user.tenant_id || dbTenantId,
+      role: roleName,
+      role_name: roleName,
+      role_id: user.role_id || dbRoleId,
+      email: user.email || decoded.email,
+      name: user.name || fullName,
+      identifier: user.identifier || identificador
+    };
+
+    const accessToken = jwt.sign(tokenPayload, process.env.JWT_SECRET || JWT_SECRET, { expiresIn: '15m' });
+    const refreshToken = jwt.sign({ sub: user.id || userId, tenant_id: user.tenant_id || dbTenantId }, process.env.JWT_REFRESH_SECRET || JWT_REFRESH_SECRET, { expiresIn: '7d' });
+
+    res.cookie('refresh_token', refreshToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'strict',
+      maxAge: 7 * 24 * 60 * 60 * 1000
+    });
+
+    return res.status(201).json({
+      message: 'Registro externo completado exitosamente',
+      token: accessToken,
+      accessToken,
+      role: roleName,
+      user: {
+        ...tokenPayload,
+        tenant_name: user.tenant_name || 'Instituto Tecnológico Central',
+        identifier: user.identifier || identificador
+      }
+    });
+
+  } catch (error) {
+    console.error('Error en completeExternalRegistration:', error);
+    return res.status(400).json({ error: 'Token de registro inválido o expirado' });
   }
 };
 

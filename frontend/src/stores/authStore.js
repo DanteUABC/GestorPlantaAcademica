@@ -99,6 +99,26 @@ export const useAuthStore = defineStore('auth', {
         this.loading = false;
       }
     },
+    async completeExternalRegistration(payload) {
+      this.loading = true;
+      this.error = null;
+      try {
+        const response = await api.post('/auth/external-register', payload);
+        const { accessToken, token, user } = response.data;
+        const finalToken = accessToken || token;
+        this._processToken(finalToken);
+        if (user) {
+          this.user = user;
+          localStorage.setItem('user', JSON.stringify(user));
+        }
+        return this.user || user;
+      } catch (err) {
+        this.error = err.response?.data?.error || 'Error al completar el registro';
+        throw this.error;
+      } finally {
+        this.loading = false;
+      }
+    },
     async quickLogin(roleName) {
       const demoAccounts = {
         coordinador: { email: 'coordinador@pavilion.com', password: 'demo123', tenant_id: 'tenant-itc' },

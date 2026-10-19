@@ -37,4 +37,15 @@ describe('Vue Router - Navigation Guards', () => {
         
         expect(router.currentRoute.value.path).toBe('/coordinator');
     });
+
+    it('debe permitir el acceso a /register/external sin autenticación', async () => {
+        const store = useAuthStore();
+        store.accessToken = null;
+        store.silentRefresh = vi.fn().mockResolvedValue(false);
+
+        await router.push('/register/external');
+        await router.isReady();
+
+        expect(router.currentRoute.value.path).toBe('/register/external');
+    });
 });

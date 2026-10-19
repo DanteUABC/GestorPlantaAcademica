@@ -95,8 +95,14 @@ async function migrateExistingUserIdentifiers(poolOrClient) {
   }
 }
 
+async function generateIdentifier(roleNameOrId, poolOrClient) {
+  const targetPool = poolOrClient || require('../db').pool;
+  return await getNextIdentifier(roleNameOrId, targetPool);
+}
+
 module.exports = {
   getRolePrefix,
   getNextIdentifier,
+  generateIdentifier,
   migrateExistingUserIdentifiers
 };

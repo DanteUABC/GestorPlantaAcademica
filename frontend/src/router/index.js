@@ -7,6 +7,7 @@ import UnauthorizedView from '../views/UnauthorizedView.vue';
 
 const routes = [
   { path: '/login', name: 'Login', component: LoginView },
+  { path: '/register/external', name: 'ExternalRegister', component: () => import('../views/ExternalRegisterView.vue'), meta: { isPublic: true } },
   { 
     path: '/coordinator', 
     name: 'Coordinator', 

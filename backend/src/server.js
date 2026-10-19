@@ -40,6 +40,7 @@ app.post('/api/auth/register', authController.register);
 app.post('/api/auth/login', authController.login);
 app.post('/api/auth/refresh', authController.refreshToken);
 app.post('/api/auth/logout', authController.logout);
+app.post('/api/auth/external-register', authController.completeExternalRegistration);
 
 // OAuth: Google SSO
 app.get('/api/auth/google', passport.authenticate('google', { scope: ['profile', 'email'], session: false }));
