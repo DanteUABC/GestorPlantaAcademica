@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { getRolePrefix, getNextIdentifier, migrateExistingUserIdentifiers } from '../../src/utils/identifierHelper';
+import { getRolePrefix, getNextIdentifier, generateIdentifier, migrateExistingUserIdentifiers } from '../../src/utils/identifierHelper';
 
 describe('identifierHelper - Generación y asignación de IDs por rol', () => {
   it('debe asignar prefijo "C" para Coordinador y Administrador, y "M" para Profesor/Maestro', () => {
@@ -112,5 +112,36 @@ describe('identifierHelper - Generación y asignación de IDs por rol', () => {
     // Maestros deben ser M001 y M002 (M003 ya coincidía)
     expect(updateQueries).toContainEqual({ id: 'usr-prof-1', identifier: 'M001' });
     expect(updateQueries).toContainEqual({ id: 'usr-prof-2', identifier: 'M002' });
+  });
+
+  it('generateIdentifier debe generar EMP-XXX para coordinadores y DOC-XXX para profesores', async () => {
+    const mockClient = {
+      query: vi.fn().mockResolvedValue({
+        rows: [
+          { id_val: 'EMP-001' },
+          { id_val: 'EMP-002' }
+        ]
+      })
+    };
+
+    const nextCoord = await generateIdentifier('Coordinador', mockClient);
+    expect(nextCoord).toBe('EMP-003');
+
+    mockClient.query.mockResolvedValueOnce({
+      rows: [
+        { id_val: 'DOC-101' },
+        { id_val: 'DOC-102' }
+      ]
+    });
+    const nextTeacher = await generateIdentifier('Profesor', mockClient);
+    expect(nextTeacher).toBe('DOC-103');
+
+    mockClient.query.mockResolvedValueOnce({ rows: [] });
+    const initialTeacher = await generateIdentifier('role-teacher', mockClient);
+    expect(initialTeacher).toBe('DOC-001');
+
+    mockClient.query.mockResolvedValueOnce({ rows: [] });
+    const initialCoord = await generateIdentifier('role-coord', mockClient);
+    expect(initialCoord).toBe('EMP-001');
   });
 });

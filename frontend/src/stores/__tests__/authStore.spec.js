@@ -93,4 +93,33 @@ describe('authStore - Gestión de Sesión', () => {
         expect(store.isAuthenticated).toBe(true);
         expect(store.accessToken).toBe('jwt123');
     });
+
+    it('debe normalizar roles y resolver getHomeRoute correctamente', () => {
+        const store = useAuthStore();
+
+        // Rol role-teacher
+        store.userRole = 'role-teacher';
+        expect(store.isTeacher).toBe(true);
+        expect(store.isCoordinator).toBe(false);
+        expect(store.hasRole(['Profesor'])).toBe(true);
+        expect(store.hasRole(['role-teacher'])).toBe(true);
+        expect(store.hasRole(['Coordinador'])).toBe(false);
+        expect(store.homeRoute).toBe('/teacher');
+        expect(store.getHomeRoute()).toBe('/teacher');
+
+        // Rol role-coord
+        store.userRole = 'role-coord';
+        expect(store.isCoordinator).toBe(true);
+        expect(store.isTeacher).toBe(false);
+        expect(store.hasRole(['Coordinador'])).toBe(true);
+        expect(store.hasRole(['role-coord'])).toBe(true);
+        expect(store.hasRole(['Profesor'])).toBe(false);
+        expect(store.homeRoute).toBe('/coordinator');
+        expect(store.getHomeRoute()).toBe('/coordinator');
+
+        // Rol español Profesor / Coordinador
+        expect(store.getHomeRoute('Profesor')).toBe('/teacher');
+        expect(store.getHomeRoute('Coordinador')).toBe('/coordinator');
+        expect(store.getHomeRoute('Desconocido')).toBe('/unauthorized');
+    });
 });

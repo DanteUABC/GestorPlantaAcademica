@@ -127,16 +127,42 @@ exports.oauthCallback = async (req, res) => {
     }
 
     // Lógica para usuarios que ya estaban registrados (emisión de accessToken/refreshToken)
+    let roleName = user.role_name;
+    let roleId = user.role_id;
+    let tenantName = user.tenant_name;
+    let identifier = user.identificador || user.identifier;
+
+    try {
+      const dbInfo = await pool.query(
+        `SELECT u.*, COALESCE(r.nombre, r.name) AS role_name, t.name AS tenant_name
+         FROM users u
+         LEFT JOIN roles r ON u.role_id = r.id
+         LEFT JOIN tenants t ON u.tenant_id = t.id
+         WHERE u.id = $1`,
+        [user.id]
+      );
+      if (dbInfo.rows.length > 0) {
+        roleName = dbInfo.rows[0].role_name || roleName;
+        roleId = dbInfo.rows[0].role_id || roleId;
+        tenantName = dbInfo.rows[0].tenant_name || tenantName;
+        identifier = dbInfo.rows[0].identificador || dbInfo.rows[0].identifier || identifier;
+      }
+    } catch (e) {
+      // Continuar con los datos en memoria si la consulta no procede
+    }
+
+    const finalRole = roleName || (roleId === 'role-coord' ? 'Coordinador' : (roleId === 'role-teacher' ? 'Profesor' : roleId));
+
     const tokenPayload = {
       sub: user.id,
       id: user.id,
       tenant_id: user.tenant_id,
-      role: user.role_name || user.role_id,
-      role_name: user.role_name || user.role_id,
-      role_id: user.role_id,
+      role: finalRole,
+      role_name: finalRole,
+      role_id: roleId,
       email: user.email,
       name: user.name || user.nombre,
-      identifier: user.identifier || user.identificador
+      identifier: identifier
     };
 
     const accessToken = jwt.sign(tokenPayload, process.env.JWT_SECRET || JWT_SECRET, { expiresIn: '15m' });
@@ -451,6 +477,7 @@ exports.completeExternalRegistration = async (req, res) => {
     );
     const user = userRes.rows[0] || {};
     const roleName = user.role_name || (tipoRol === 'coordinador' ? 'Coordinador' : 'Profesor');
+    const finalIdentifier = user.identificador || user.identifier || identificador;
 
     const tokenPayload = {
       sub: user.id || userId,
@@ -461,7 +488,8 @@ exports.completeExternalRegistration = async (req, res) => {
       role_id: user.role_id || dbRoleId,
       email: user.email || decoded.email,
       name: user.name || fullName,
-      identifier: user.identifier || identificador
+      identifier: finalIdentifier,
+      identificador: finalIdentifier
     };
 
     const accessToken = jwt.sign(tokenPayload, process.env.JWT_SECRET || JWT_SECRET, { expiresIn: '15m' });
@@ -482,7 +510,8 @@ exports.completeExternalRegistration = async (req, res) => {
       user: {
         ...tokenPayload,
         tenant_name: user.tenant_name || 'Instituto Tecnológico Central',
-        identifier: user.identifier || identificador
+        identifier: finalIdentifier,
+        identificador: finalIdentifier
       }
     });
 

@@ -3,25 +3,64 @@ import { jwtDecode } from 'jwt-decode';
 import api from '../api/client';
 
 export const useAuthStore = defineStore('auth', {
-  state: () => ({
-    accessToken: localStorage.getItem('token') || null,
-    tenantId: localStorage.getItem('tenant_id') || null,
-    userRole: null,
-    user: JSON.parse(localStorage.getItem('user') || 'null'),
-    loading: false,
-    error: null,
-  }),
+  state: () => {
+    const savedUser = JSON.parse(localStorage.getItem('user') || 'null');
+    return {
+      accessToken: localStorage.getItem('token') || null,
+      tenantId: localStorage.getItem('tenant_id') || null,
+      userRole: savedUser?.role_name || null,
+      user: savedUser,
+      loading: false,
+      error: null,
+    };
+  },
   getters: {
     isAuthenticated: (state) => !!state.accessToken,
     hasRole: (state) => (allowedRoles) => {
       if (!state.userRole) return false;
-      return allowedRoles.includes(state.userRole);
+      const current = String(state.userRole).toLowerCase();
+      return allowedRoles.some((r) => {
+        const allowed = String(r).toLowerCase();
+        if (allowed === current) return true;
+        if ((allowed === 'profesor' || allowed === 'role-teacher') && (current === 'profesor' || current === 'role-teacher')) return true;
+        if ((allowed === 'coordinador' || allowed === 'role-coord') && (current === 'coordinador' || current === 'role-coord')) return true;
+        if ((allowed === 'administrador' || allowed === 'role-admin') && (current === 'administrador' || current === 'role-admin')) return true;
+        return false;
+      });
     },
-    isCoordinator: (state) => state.userRole === 'Coordinador' || state.userRole === 'Administrador',
-    isTeacher: (state) => state.userRole === 'Profesor',
+    isCoordinator: (state) => {
+      const r = String(state.userRole || '').toLowerCase();
+      return r === 'coordinador' || r === 'administrador' || r === 'role-coord' || r === 'role-admin' || r.includes('coord') || r.includes('admin');
+    },
+    isTeacher: (state) => {
+      const r = String(state.userRole || '').toLowerCase();
+      return r === 'profesor' || r === 'role-teacher' || r.includes('prof') || r.includes('teach') || r.includes('maestr');
+    },
+    homeRoute: (state) => {
+      const r = String(state.userRole || '').toLowerCase();
+      if (r === 'profesor' || r === 'role-teacher' || r.includes('prof') || r.includes('teach') || r.includes('maestr')) {
+        return '/teacher';
+      }
+      if (r === 'coordinador' || r === 'administrador' || r === 'role-coord' || r === 'role-admin' || r.includes('coord') || r.includes('admin')) {
+        return '/coordinator';
+      }
+      return '/login';
+    },
     tenantName: (state) => state.user?.tenant_name || (state.tenantId === 'tenant-itc' ? 'Instituto Tecnológico Central' : (state.tenantId === 'tenant-upn' ? 'Universidad Politécnica del Norte' : state.tenantId || 'Institución Activa')),
   },
   actions: {
+    getHomeRoute(roleOverride = null) {
+      const role = roleOverride || this.userRole;
+      if (!role) return '/login';
+      const r = String(role).toLowerCase();
+      if (r === 'profesor' || r === 'role-teacher' || r.includes('prof') || r.includes('teach') || r.includes('maestr')) {
+        return '/teacher';
+      }
+      if (r === 'coordinador' || r === 'administrador' || r === 'role-coord' || r === 'role-admin' || r.includes('coord') || r.includes('admin')) {
+        return '/coordinator';
+      }
+      return '/unauthorized';
+    },
     _processToken(token) {
       this.accessToken = token;
       try {

@@ -386,12 +386,14 @@ async function demoLogin(role) {
 }
 
 function navigateByRole(role) {
-  if (role === 'Coordinador' || role === 'Administrador') {
-    return router.push('/coordinator');
-  } else if (role === 'Profesor') {
+  const r = String(role || '').toLowerCase();
+  if (r === 'role-teacher' || r === 'profesor' || r.includes('teach') || r.includes('prof') || r.includes('maestr')) {
     return router.push('/teacher');
+  } else if (r === 'role-coord' || r === 'role-admin' || r === 'coordinador' || r === 'administrador' || r.includes('coord') || r.includes('admin')) {
+    return router.push('/coordinator');
   } else {
-    return router.push('/unauthorized');
+    const target = authStore.getHomeRoute ? authStore.getHomeRoute(role) : '/unauthorized';
+    return router.push(target);
   }
 }
 </script>

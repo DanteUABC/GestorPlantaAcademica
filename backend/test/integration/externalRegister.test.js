@@ -107,20 +107,15 @@ describe('Integración: Registro y Autenticación con Correo Externo (OAuth & De
             expect(response.body.error).toBe('Token de registro inválido o expirado');
         });
 
-        it('debe registrar un profesor con prefijo M y sin contraseña con token válido', async () => {
+        it('debe registrar un profesor con prefijo DOC y sin contraseña con token válido', async () => {
             const regToken = jwt.sign(
                 { email: 'profesor.externo@gmail.com', provider: 'google', provider_id: 'g-987' },
                 JWT_SECRET,
                 { expiresIn: '15m' }
             );
 
-            // Mocks para pool.query:
-            // 1. SELECT identifier FROM users WHERE identifier LIKE 'M%' (getNextIdentifier)
-            // 2. INSERT INTO usuarios (...) RETURNING id
-            // 3. INSERT INTO usuarios_roles (...)
-            // 4. SELECT u.*, role_name, tenant_name FROM users ...
             poolQuerySpy
-                .mockResolvedValueOnce({ rows: [{ identifier: 'M001' }] }) // generateIdentifier
+                .mockResolvedValueOnce({ rows: [{ id_val: 'DOC-001' }] }) // generateIdentifier -> DOC-002
                 .mockResolvedValueOnce({ rows: [{ id: 'usr-ext-1' }] }) // INSERT INTO usuarios
                 .mockResolvedValueOnce({ rowCount: 1 }) // INSERT INTO usuarios_roles
                 .mockResolvedValueOnce({
@@ -129,7 +124,8 @@ describe('Integración: Registro y Autenticación con Correo Externo (OAuth & De
                         tenant_id: 'tenant-itc',
                         email: 'profesor.externo@gmail.com',
                         name: 'Mateo Lopez',
-                        identifier: 'M002',
+                        identifier: 'DOC-002',
+                        identificador: 'DOC-002',
                         role_id: 'role-teacher',
                         role_name: 'Profesor',
                         tenant_name: 'Instituto Tecnológico Central'
@@ -150,7 +146,7 @@ describe('Integración: Registro y Autenticación con Correo Externo (OAuth & De
             expect(response.body.message).toBe('Registro externo completado exitosamente');
             expect(response.body.token).toBeDefined();
             expect(response.body.role).toBe('Profesor');
-            expect(response.body.user.identifier).toBe('M002');
+            expect(response.body.user.identifier).toBe('DOC-002');
             expect(response.body.user.email).toBe('profesor.externo@gmail.com');
 
             const decoded = jwt.verify(response.body.token, JWT_SECRET);
@@ -158,7 +154,7 @@ describe('Integración: Registro y Autenticación con Correo Externo (OAuth & De
             expect(decoded.sub).toBe('usr-ext-1');
         });
 
-        it('debe registrar un coordinador con prefijo C cuando rol_id es 1', async () => {
+        it('debe registrar un coordinador con prefijo EMP cuando rol_id es 1', async () => {
             const regToken = jwt.sign(
                 { email: 'coord.externo@outlook.com', provider: 'microsoft', provider_id: 'ms-555' },
                 JWT_SECRET,
@@ -166,7 +162,7 @@ describe('Integración: Registro y Autenticación con Correo Externo (OAuth & De
             );
 
             poolQuerySpy
-                .mockResolvedValueOnce({ rows: [] }) // generateIdentifier -> C001
+                .mockResolvedValueOnce({ rows: [] }) // generateIdentifier -> EMP-001
                 .mockResolvedValueOnce({ rows: [{ id: 'usr-ext-2' }] }) // INSERT usuarios
                 .mockResolvedValueOnce({ rowCount: 1 }) // INSERT usuarios_roles
                 .mockResolvedValueOnce({
@@ -175,7 +171,8 @@ describe('Integración: Registro y Autenticación con Correo Externo (OAuth & De
                         tenant_id: 'tenant-itc',
                         email: 'coord.externo@outlook.com',
                         name: 'Clara Oswald',
-                        identifier: 'C001',
+                        identifier: 'EMP-001',
+                        identificador: 'EMP-001',
                         role_id: 'role-coord',
                         role_name: 'Coordinador',
                         tenant_name: 'Instituto Tecnológico Central'
@@ -194,7 +191,7 @@ describe('Integración: Registro y Autenticación con Correo Externo (OAuth & De
 
             expect(response.status).toBe(201);
             expect(response.body.role).toBe('Coordinador');
-            expect(response.body.user.identifier).toBe('C001');
+            expect(response.body.user.identifier).toBe('EMP-001');
         });
     });
 });

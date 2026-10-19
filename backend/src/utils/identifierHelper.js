@@ -95,9 +95,40 @@ async function migrateExistingUserIdentifiers(poolOrClient) {
   }
 }
 
+/**
+ * Genera el ID institucional oficial:
+ * - Coordinador / Administrador: "EMP-001", "EMP-002", etc.
+ * - Profesor / Docente: "DOC-001", "DOC-002", etc.
+ */
 async function generateIdentifier(roleNameOrId, poolOrClient) {
   const targetPool = poolOrClient || require('../db').pool;
-  return await getNextIdentifier(roleNameOrId, targetPool);
+  const roleStr = String(roleNameOrId || '').toLowerCase().trim();
+  const prefix = (roleStr.includes('coord') || roleStr.includes('admin') || roleStr === 'role-coord' || roleStr === 'role-admin' || roleStr.includes('emp') || roleStr === '1')
+    ? 'EMP-'
+    : 'DOC-';
+
+  const res = await targetPool.query(
+    "SELECT COALESCE(identificador, identifier) AS id_val FROM users WHERE identificador LIKE $1 OR identifier LIKE $1",
+    [`${prefix}%`]
+  );
+
+  let maxNum = 0;
+  const regex = new RegExp(`^${prefix}(\\d+)$`, 'i');
+
+  for (const row of (res.rows || [])) {
+    if (row.id_val) {
+      const match = row.id_val.trim().match(regex);
+      if (match) {
+        const num = parseInt(match[1], 10);
+        if (!isNaN(num) && num > maxNum) {
+          maxNum = num;
+        }
+      }
+    }
+  }
+
+  const nextNum = maxNum + 1;
+  return `${prefix}${String(nextNum).padStart(3, '0')}`;
 }
 
 module.exports = {

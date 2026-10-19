@@ -161,7 +161,7 @@ const submitRegistration = async () => {
           tenant_id: tenant_id.value || 1
       });
 
-      if (rol_id.value === 1 || authStore.userRole === 'Coordinador' || authStore.userRole === 'Administrador') {
+      if (rol_id.value === 1 || authStore.isCoordinator || authStore.userRole === 'role-coord' || authStore.userRole === 'Coordinador' || authStore.userRole === 'Administrador') {
         router.push('/coordinator');
       } else {
         router.push('/teacher');

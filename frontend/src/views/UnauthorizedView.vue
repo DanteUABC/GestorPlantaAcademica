@@ -52,9 +52,12 @@ const router = useRouter();
 const authStore = useAuthStore();
 
 function goBack() {
-  if (authStore.userRole === 'Coordinador' || authStore.userRole === 'Administrador') {
+  const home = authStore.getHomeRoute ? authStore.getHomeRoute() : null;
+  if (home && home !== '/unauthorized' && home !== '/login') {
+    router.push(home);
+  } else if (authStore.isCoordinator || authStore.userRole === 'role-coord') {
     router.push('/coordinator');
-  } else if (authStore.userRole === 'Profesor') {
+  } else if (authStore.isTeacher || authStore.userRole === 'role-teacher') {
     router.push('/teacher');
   } else {
     router.push('/login');

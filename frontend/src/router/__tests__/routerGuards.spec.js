@@ -48,4 +48,38 @@ describe('Vue Router - Navigation Guards', () => {
 
         expect(router.currentRoute.value.path).toBe('/register/external');
     });
+
+    it('debe redirigir a un profesor autenticado a /teacher si intenta acceder a /login', async () => {
+        const store = useAuthStore();
+        store.accessToken = 'dummy-token';
+        store.userRole = 'role-teacher';
+
+        await router.push('/login');
+        await router.isReady();
+
+        expect(router.currentRoute.value.path).toBe('/teacher');
+    });
+
+    it('debe redirigir a un coordinador autenticado a /coordinator si intenta acceder a /login', async () => {
+        const store = useAuthStore();
+        store.accessToken = 'dummy-token';
+        store.userRole = 'role-coord';
+
+        await router.push('/login');
+        await router.isReady();
+
+        expect(router.currentRoute.value.path).toBe('/coordinator');
+    });
+
+    it('debe redirigir a /unauthorized si un usuario con role-teacher intenta acceder a /coordinator', async () => {
+        const store = useAuthStore();
+        store.accessToken = 'dummy-token';
+        store.userRole = 'role-teacher';
+
+        await router.push('/teacher');
+        await router.push('/coordinator');
+        await router.isReady();
+
+        expect(router.currentRoute.value.path).toBe('/unauthorized');
+    });
 });

@@ -12,18 +12,27 @@ const routes = [
     path: '/coordinator', 
     name: 'Coordinator', 
     component: CoordinatorView,
-    meta: { requiresAuth: true, allowedRoles: ['Coordinador', 'Administrador'] }
+    meta: { requiresAuth: true, allowedRoles: ['Coordinador', 'Administrador', 'role-coord', 'role-admin'] }
   },
   { 
     path: '/teacher', 
     name: 'Teacher', 
     component: TeacherView,
-    meta: { requiresAuth: true, allowedRoles: ['Profesor', 'Coordinador', 'Administrador'] }
+    meta: { requiresAuth: true, allowedRoles: ['Profesor', 'Coordinador', 'Administrador', 'role-teacher', 'role-coord', 'role-admin'] }
   },
   { path: '/unauthorized', name: 'Unauthorized', component: UnauthorizedView },
   { path: '/coordinador', redirect: '/coordinator' },
   { path: '/profesor', redirect: '/teacher' },
-  { path: '/', redirect: '/coordinator' },
+  { 
+    path: '/', 
+    redirect: () => {
+      const authStore = useAuthStore();
+      if (authStore.isAuthenticated) {
+        return authStore.getHomeRoute ? authStore.getHomeRoute() : (authStore.isTeacher ? '/teacher' : '/coordinator');
+      }
+      return '/login';
+    }
+  },
   { path: '/:pathMatch(.*)*', redirect: '/login' }
 ];
 
@@ -34,6 +43,14 @@ const router = createRouter({
 
 router.beforeEach(async (to, from, next) => {
   const authStore = useAuthStore();
+
+  // Si un usuario autenticado intenta acceder a /login, redirigir a su panel según su rol
+  if ((to.path === '/login' || to.name === 'Login') && authStore.isAuthenticated) {
+    const homeRoute = authStore.getHomeRoute ? authStore.getHomeRoute() : (authStore.isTeacher ? '/teacher' : '/coordinator');
+    if (homeRoute && homeRoute !== '/login') {
+      return next(homeRoute);
+    }
+  }
 
   if (to.meta.requiresAuth) {
     if (!authStore.isAuthenticated) {
