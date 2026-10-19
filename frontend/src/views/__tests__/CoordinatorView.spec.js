@@ -94,8 +94,9 @@ describe('CoordinatorView.vue - Búsqueda de Maestro y Materia al armar horario'
       raw: { name: 'Cálculo Diferencial', code: 'MAT-101', credits: 5 }
     };
 
-    // Coincidencia por nombre
+    // Coincidencia por nombre (con o sin acentos)
     expect(customFilter('Cálculo Diferencial', 'cálculo', itemSample)).toBe(true);
+    expect(customFilter('Cálculo Diferencial', 'calculo', itemSample)).toBe(true);
     // Coincidencia por código de materia
     expect(customFilter('Cálculo Diferencial', 'MAT-101', itemSample)).toBe(true);
     // No coincidencia
@@ -121,5 +122,12 @@ describe('CoordinatorView.vue - Búsqueda de Maestro y Materia al armar horario'
     expect(customFilter('Elena Salgado', 'DOC-101', itemSample)).toBe(true);
     // No coincidencia
     expect(customFilter('Elena Salgado', 'roberto', itemSample)).toBe(false);
+
+    // Coincidencia con acentos / sin acentos
+    const maestroConAcento = {
+      raw: { name: 'José Rodríguez', email: 'jose.rodriguez@itc.edu', identifier: 'DOC-103' }
+    };
+    expect(customFilter('José Rodríguez', 'jose', maestroConAcento)).toBe(true);
+    expect(customFilter('José Rodríguez', 'rodriguez', maestroConAcento)).toBe(true);
   });
 });

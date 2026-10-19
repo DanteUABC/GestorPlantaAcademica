@@ -529,22 +529,30 @@ function getSchedulesByDay(day) {
   return filteredSchedules.value.filter(s => s.day_of_week === day);
 }
 
+function normalizeSearchText(text) {
+  return String(text ?? '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .trim();
+}
+
 function filterSubjects(valueText, queryText, item) {
   if (!queryText) return true;
-  const q = queryText.toLowerCase().trim();
-  const raw = item?.raw || {};
-  const name = String(raw.name || valueText || '').toLowerCase();
-  const code = String(raw.code || '').toLowerCase();
+  const q = normalizeSearchText(queryText);
+  const raw = item?.raw || item || {};
+  const name = normalizeSearchText(raw.name || valueText);
+  const code = normalizeSearchText(raw.code);
   return name.includes(q) || code.includes(q);
 }
 
 function filterTeachers(valueText, queryText, item) {
   if (!queryText) return true;
-  const q = queryText.toLowerCase().trim();
-  const raw = item?.raw || {};
-  const name = String(raw.name || valueText || '').toLowerCase();
-  const email = String(raw.email || '').toLowerCase();
-  const identifier = String(raw.identifier || '').toLowerCase();
+  const q = normalizeSearchText(queryText);
+  const raw = item?.raw || item || {};
+  const name = normalizeSearchText(raw.name || valueText);
+  const email = normalizeSearchText(raw.email);
+  const identifier = normalizeSearchText(raw.identifier);
   return name.includes(q) || email.includes(q) || identifier.includes(q);
 }
 
