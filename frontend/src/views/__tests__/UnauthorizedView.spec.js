@@ -10,9 +10,13 @@ const mockRouter = {
   push: vi.fn()
 };
 
-vi.mock('vue-router', () => ({
-  useRouter: () => mockRouter
-}));
+vi.mock('vue-router', async (importOriginal) => {
+  const actual = await importOriginal();
+  return {
+    ...actual,
+    useRouter: () => mockRouter
+  };
+});
 
 describe('UnauthorizedView.vue', () => {
   let pinia;

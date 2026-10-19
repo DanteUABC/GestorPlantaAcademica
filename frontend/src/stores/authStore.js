@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia';
 import { jwtDecode } from 'jwt-decode';
 import api from '../api/client';
+import router from '../router';
 
 export const useAuthStore = defineStore('auth', {
   state: () => {
@@ -182,6 +183,10 @@ export const useAuthStore = defineStore('auth', {
       localStorage.removeItem('token');
       localStorage.removeItem('user');
       localStorage.removeItem('tenant_id');
+
+      if (router && typeof router.push === 'function') {
+        router.push('/login');
+      }
     }
   }
 });

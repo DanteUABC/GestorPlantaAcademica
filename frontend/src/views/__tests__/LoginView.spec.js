@@ -6,10 +6,14 @@ import { createPinia } from 'pinia';
 config.global.renderStubDefaultSlot = true;
 
 // Mock simple para el Router
-vi.mock('vue-router', () => ({
-    useRouter: () => ({ push: vi.fn() }),
-    useRoute: () => ({ query: {} })
-}));
+vi.mock('vue-router', async (importOriginal) => {
+    const actual = await importOriginal();
+    return {
+        ...actual,
+        useRouter: () => ({ push: vi.fn() }),
+        useRoute: () => ({ query: {} })
+    };
+});
 
 describe('LoginView.vue - UI de Autenticación', () => {
     it('debe renderizar el título de la vista', () => {

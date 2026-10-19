@@ -2,6 +2,7 @@ import { setActivePinia, createPinia } from 'pinia';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { useAuthStore } from '../authStore';
 import api from '../../api/client';
+import router from '../../router';
 
 // Mock del cliente API
 vi.mock('../../api/client', () => ({
@@ -50,8 +51,9 @@ describe('authStore - Gestión de Sesión', () => {
         expect(store.userRole).toBe('Coordinador');
     });
 
-    it('debe limpiar el estado al cerrar sesión', async () => {
+    it('debe limpiar el estado al cerrar sesión y redirigir a /login', async () => {
         const store = useAuthStore();
+        const pushSpy = vi.spyOn(router, 'push').mockImplementation(() => Promise.resolve());
         
         // Setup initial auth state manually
         store.accessToken = 'jwt123';
@@ -66,6 +68,7 @@ describe('authStore - Gestión de Sesión', () => {
         expect(store.accessToken).toBeNull();
         expect(store.tenantId).toBeNull();
         expect(store.userRole).toBeNull();
+        expect(pushSpy).toHaveBeenCalledWith('/login');
     });
 
     it('debe actualizar el estado al completar registro externo exitosamente', async () => {

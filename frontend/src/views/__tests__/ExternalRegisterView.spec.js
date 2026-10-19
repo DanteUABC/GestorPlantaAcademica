@@ -15,10 +15,14 @@ const { mockRoute, mockRouter } = vi.hoisted(() => ({
   }
 }));
 
-vi.mock('vue-router', () => ({
-  useRoute: () => mockRoute,
-  useRouter: () => mockRouter
-}));
+vi.mock('vue-router', async (importOriginal) => {
+  const actual = await importOriginal();
+  return {
+    ...actual,
+    useRoute: () => mockRoute,
+    useRouter: () => mockRouter
+  };
+});
 
 vi.mock('../../api/client', () => ({
   default: {
