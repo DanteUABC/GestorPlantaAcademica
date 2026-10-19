@@ -1,4 +1,5 @@
 const { query, pool } = require('../db');
+const xlsx = require('xlsx');
 
 // Helper to convert 'HH:MM' string to minutes from 00:00 for easy comparison
 function timeToMinutes(t) {
@@ -522,11 +523,74 @@ async function uploadExcelSchedule(req, res) {
   }
 }
 
+// -------------------------------------------------------------
+// EXPORTACIÓN DE HORARIOS (.XLSX)
+// -------------------------------------------------------------
+
+async function exportSchedules(req, res) {
+  try {
+    const tenant_id = req.user?.tenant_id || req.tenant_id;
+
+    if (!tenant_id) {
+      return res.status(400).json({ error: 'Tenant no identificado' });
+    }
+
+    // Consultar los horarios del tenant/usuario
+    const result = await pool.query(
+      'SELECT materia, profesor, dia, hora_inicio, hora_fin FROM horarios WHERE tenant_id = $1',
+      [tenant_id]
+    );
+
+    let data = result?.rows || [];
+
+    // Si no hay registros en la tabla horarios, intentar consultar la tabla schedules
+    if (data.length === 0) {
+      const schedulesResult = await pool.query(
+        `SELECT sub.name AS materia, COALESCE(u.name, s.teacher_id) AS profesor,
+                s.day_of_week AS dia, s.start_time AS hora_inicio, s.end_time AS hora_fin
+         FROM schedules s
+         LEFT JOIN subjects sub ON s.subject_id = sub.id
+         LEFT JOIN users u ON s.teacher_id = u.id
+         WHERE s.tenant_id = $1`,
+        [tenant_id]
+      );
+      if (schedulesResult?.rows && schedulesResult.rows.length > 0) {
+        data = schedulesResult.rows;
+      }
+    }
+
+    // Crear hoja de cálculo
+    const worksheet = xlsx.utils.json_to_sheet(data);
+
+    // Criterio 2: Si no hay registros, asegurar que al menos vayan los encabezados
+    if (data.length === 0) {
+      xlsx.utils.sheet_add_aoa(worksheet, [['materia', 'profesor', 'dia', 'hora_inicio', 'hora_fin']], { origin: 'A1' });
+    }
+
+    const workbook = xlsx.utils.book_new();
+    xlsx.utils.book_append_sheet(workbook, worksheet, 'Horarios');
+
+    // Generar buffer binario
+    const buffer = xlsx.write(workbook, { type: 'buffer', bookType: 'xlsx' });
+
+    // Enviar respuesta al cliente como archivo descargable
+    res.setHeader('Content-Disposition', 'attachment; filename="horarios_exportados.xlsx"');
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    return res.status(200).send(buffer);
+  } catch (error) {
+    console.error('Error al exportar los horarios:', error);
+    return res.status(500).json({ error: 'Error al exportar los horarios' });
+  }
+}
+
 module.exports = {
   createSchedule,
   getCoordinatorSchedules,
   deleteSchedule,
   getTeacherSchedules,
   uploadExcelMiddleware,
-  uploadExcelSchedule
+  uploadExcelSchedule,
+  exportSchedules
 };
+
+module.exports.exportSchedules = exportSchedules;

@@ -123,11 +123,24 @@ async function initDatabase() {
       FOREIGN KEY (classroom_id) REFERENCES classrooms(id) ON DELETE CASCADE
     );
 
+    -- Horarios (Tabla para exportación y compatibilidad de horarios, scoped by tenant_id)
+    CREATE TABLE IF NOT EXISTS horarios (
+      id SERIAL PRIMARY KEY,
+      tenant_id VARCHAR(50) NOT NULL,
+      materia VARCHAR(255) NOT NULL,
+      profesor VARCHAR(255) NOT NULL,
+      dia VARCHAR(50) NOT NULL,
+      hora_inicio VARCHAR(50) NOT NULL,
+      hora_fin VARCHAR(50) NOT NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+
     -- Performance indexes for tenant-isolated queries
     CREATE INDEX IF NOT EXISTS idx_users_tenant ON users(tenant_id);
     CREATE INDEX IF NOT EXISTS idx_subjects_tenant ON subjects(tenant_id);
     CREATE INDEX IF NOT EXISTS idx_classrooms_tenant ON classrooms(tenant_id);
     CREATE INDEX IF NOT EXISTS idx_schedules_tenant ON schedules(tenant_id);
+    CREATE INDEX IF NOT EXISTS idx_horarios_tenant ON horarios(tenant_id);
     CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
 
     -- Vistas de compatibilidad RBAC y tablas en español
@@ -161,6 +174,19 @@ async function initDatabase() {
           ALTER TABLE users ADD CONSTRAINT users_email_unique UNIQUE (email);
         END IF;
       END $$;
+
+      -- Tabla de horarios para exportación y compatibilidad
+      CREATE TABLE IF NOT EXISTS horarios (
+        id SERIAL PRIMARY KEY,
+        tenant_id VARCHAR(50) NOT NULL,
+        materia VARCHAR(255) NOT NULL,
+        profesor VARCHAR(255) NOT NULL,
+        dia VARCHAR(50) NOT NULL,
+        hora_inicio VARCHAR(50) NOT NULL,
+        hora_fin VARCHAR(50) NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE INDEX IF NOT EXISTS idx_horarios_tenant ON horarios(tenant_id);
 
       -- Vistas y reglas para compatibilidad total
       DROP VIEW IF EXISTS usuarios CASCADE;

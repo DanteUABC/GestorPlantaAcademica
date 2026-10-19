@@ -88,6 +88,7 @@ app.post(
   scheduleController.uploadExcelMiddleware,
   scheduleController.uploadExcelSchedule
 );
+app.get('/api/schedules/export', authenticateJWT, scheduleController.exportSchedules);
 
 // Módulo Docente: Consulta de Horario y Grupos
 app.get('/api/schedules/teacher', requireRole(['Profesor', 'Coordinador', 'Administrador']), scheduleController.getTeacherSchedules);
