@@ -339,6 +339,111 @@ function mapExcelRows(rawRows) {
   });
 }
 
+const { hasOverlap } = require('../utils/overlapValidator');
+
+// Detecta empalmes de profesor y de aula entre las filas nuevas del Excel y los horarios existentes
+// en BD (origen 'BD'), y entre las propias filas del Excel (origen 'EXCEL').
+// Devuelve una lista detallada de quién choca con quién.
+function detectOverlaps(pending, existing) {
+  const conflicts = [];
+
+  const nuevoInfo = (p) => ({
+    fila: p.fila,
+    materia: p.subject.code,
+    profesor: p.teacher.name,
+    aula: p.classroom.name,
+    dia: p.day,
+    hora_inicio: p.startTime,
+    hora_fin: p.endTime
+  });
+  const existenteInfo = (e) => ({
+    id: e.id,
+    materia: e.subject_name,
+    profesor: e.teacher_name,
+    aula: e.classroom_name,
+    dia: e.day_of_week,
+    hora_inicio: e.start_time,
+    hora_fin: e.end_time
+  });
+  const range = (p) => ({ day_of_week: p.day, start_time: p.startTime, end_time: p.endTime });
+
+  // Agrupa por día para evitar comparar todo contra todo
+  const existingByDay = new Map();
+  for (const e of existing) {
+    if (!existingByDay.has(e.day_of_week)) existingByDay.set(e.day_of_week, []);
+    existingByDay.get(e.day_of_week).push(e);
+  }
+  const pendingByDay = new Map();
+  for (const p of pending) {
+    if (!pendingByDay.has(p.day)) pendingByDay.set(p.day, []);
+    pendingByDay.get(p.day).push(p);
+  }
+
+  for (const [day, news] of pendingByDay) {
+    // Excel vs. BD
+    for (const p of news) {
+      for (const e of existingByDay.get(day) || []) {
+        const sameTeacher = e.teacher_id === p.teacher.id;
+        const sameClassroom = e.classroom_id === p.classroom.id;
+        if (!sameTeacher && !sameClassroom) continue;
+        if (!hasOverlap(range(p), { day_of_week: e.day_of_week, start_time: e.start_time, end_time: e.end_time })) continue;
+
+        if (sameTeacher) {
+          conflicts.push({
+            tipo: 'PROFESOR',
+            origen: 'BD',
+            mensaje: `Fila ${p.fila}: el profesor ${p.teacher.name} ya tiene "${e.subject_name}" el ${day} de ${e.start_time} a ${e.end_time}`,
+            nuevo: nuevoInfo(p),
+            existente: existenteInfo(e)
+          });
+        }
+        if (sameClassroom) {
+          conflicts.push({
+            tipo: 'AULA',
+            origen: 'BD',
+            mensaje: `Fila ${p.fila}: el aula "${p.classroom.name}" ya está reservada para "${e.subject_name}" el ${day} de ${e.start_time} a ${e.end_time}`,
+            nuevo: nuevoInfo(p),
+            existente: existenteInfo(e)
+          });
+        }
+      }
+    }
+
+    // Excel vs. Excel (cada par se reporta una sola vez)
+    for (let i = 0; i < news.length; i++) {
+      for (let j = i + 1; j < news.length; j++) {
+        const a = news[i];
+        const b = news[j];
+        const sameTeacher = a.teacher.id === b.teacher.id;
+        const sameClassroom = a.classroom.id === b.classroom.id;
+        if (!sameTeacher && !sameClassroom) continue;
+        if (!hasOverlap(range(a), range(b))) continue;
+
+        if (sameTeacher) {
+          conflicts.push({
+            tipo: 'PROFESOR',
+            origen: 'EXCEL',
+            mensaje: `Filas ${a.fila} y ${b.fila}: el profesor ${a.teacher.name} tiene dos clases empalmadas el ${day}`,
+            nuevo: nuevoInfo(a),
+            existente: nuevoInfo(b)
+          });
+        }
+        if (sameClassroom) {
+          conflicts.push({
+            tipo: 'AULA',
+            origen: 'EXCEL',
+            mensaje: `Filas ${a.fila} y ${b.fila}: el aula "${a.classroom.name}" está asignada dos veces empalmada el ${day}`,
+            nuevo: nuevoInfo(a),
+            existente: nuevoInfo(b)
+          });
+        }
+      }
+    }
+  }
+
+  return conflicts;
+}
+
 async function uploadExcelSchedule(req, res) {
   let client;
   try {
@@ -357,6 +462,11 @@ async function uploadExcelSchedule(req, res) {
         error: 'No se pudo determinar la institución (tenant) del usuario'
       });
     }
+
+    // Confirmación explícita para sobrescribir empalmes. multer expone los campos de texto del
+    // multipart en req.body; se acepta también ?force=true como respaldo.
+    const forceRaw = req.body?.force ?? req.query?.force;
+    const force = forceRaw === true || String(forceRaw ?? '').trim().toLowerCase() === 'true';
 
     // 1. Parseo del buffer en memoria
     let rawRows;
@@ -417,7 +527,8 @@ async function uploadExcelSchedule(req, res) {
     const classroomsByName = new Map(classroomsRes.rows.map((c) => [normalizeKey(c.name), c]));
 
     const errors = [];
-    let inserted = 0;
+    const pending = []; // filas válidas del Excel, pendientes de insertar
+    let replaced = 0;   // horarios de BD sobrescritos con force=true
 
     for (let i = 0; i < rows.length; i++) {
       const row = rows[i];
@@ -459,40 +570,11 @@ async function uploadExcelSchedule(req, res) {
         continue;
       }
 
-      // Anti-empalme dentro de la transacción: también ve las filas ya insertadas de este mismo archivo
-      const teacherConflict = await client.query(
-        `SELECT start_time, end_time FROM schedules
-         WHERE tenant_id = $1 AND teacher_id = $2 AND day_of_week = $3
-           AND start_time < $4 AND end_time > $5 LIMIT 1`,
-        [tenantId, teacher.id, day, endTime, startTime]
-      );
-      if (teacherConflict.rows.length > 0) {
-        const c = teacherConflict.rows[0];
-        errors.push({ fila, error: `Empalme de Profesor: ${teacher.name} ya tiene clase el ${day} de ${c.start_time} a ${c.end_time}` });
-        continue;
-      }
-
-      const classroomConflict = await client.query(
-        `SELECT start_time, end_time FROM schedules
-         WHERE tenant_id = $1 AND classroom_id = $2 AND day_of_week = $3
-           AND start_time < $4 AND end_time > $5 LIMIT 1`,
-        [tenantId, classroom.id, day, endTime, startTime]
-      );
-      if (classroomConflict.rows.length > 0) {
-        const c = classroomConflict.rows[0];
-        errors.push({ fila, error: `Empalme de Aula: "${classroom.name}" ya está reservada el ${day} de ${c.start_time} a ${c.end_time}` });
-        continue;
-      }
-
-      await client.query(
-        `INSERT INTO schedules (id, tenant_id, subject_id, teacher_id, classroom_id, day_of_week, start_time, end_time, max_students)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-        ['sch-' + crypto.randomUUID(), tenantId, subject.id, teacher.id, classroom.id, day, startTime, endTime, maxStudents]
-      );
-      inserted++;
+      // Fila válida: se acumula; empalmes e inserción se resuelven después, sobre el conjunto completo
+      pending.push({ fila, subject, teacher, classroom, day, startTime, endTime, maxStudents });
     }
 
-    // Si cualquier fila falló, no se guarda ninguna
+    // Si cualquier fila falló la validación, no se guarda ninguna
     if (errors.length > 0) {
       await client.query('ROLLBACK');
       return res.status(400).json({
@@ -502,12 +584,74 @@ async function uploadExcelSchedule(req, res) {
       });
     }
 
+    // 4. Detección de empalmes (contra la BD del tenant y entre filas del mismo Excel)
+    const existingRes = await client.query(
+      `SELECT s.id, s.teacher_id, s.classroom_id, s.day_of_week, s.start_time, s.end_time,
+              sub.name AS subject_name, u.name AS teacher_name, cr.name AS classroom_name
+       FROM schedules s
+       JOIN subjects sub ON s.subject_id = sub.id
+       JOIN users u ON s.teacher_id = u.id
+       JOIN classrooms cr ON s.classroom_id = cr.id
+       WHERE s.tenant_id = $1`,
+      [tenantId]
+    );
+    const conflicts = detectOverlaps(pending, existingRes.rows);
+
+    if (conflicts.length > 0) {
+      const dbConflicts = conflicts.filter((c) => c.origen === 'BD');
+      const excelConflicts = conflicts.filter((c) => c.origen === 'EXCEL');
+
+      // Sin confirmación explícita: se aborta y se informa quién choca con quién
+      if (!force) {
+        await client.query('ROLLBACK');
+        return res.status(409).json({
+          success: false,
+          conflictType: 'SCHEDULE_OVERLAP',
+          error: 'Se detectaron empalmes. No se guardó ningún registro. Reenvíe con force=true para sobrescribir los horarios existentes en la base de datos.',
+          requiresForce: dbConflicts.length > 0 && excelConflicts.length === 0,
+          conflicts
+        });
+      }
+
+      // Con force solo se pueden sobrescribir registros de la BD; un empalme dentro del propio Excel no tiene solución automática
+      if (excelConflicts.length > 0) {
+        await client.query('ROLLBACK');
+        return res.status(409).json({
+          success: false,
+          conflictType: 'SCHEDULE_OVERLAP_IN_FILE',
+          error: 'El archivo tiene empalmes entre sus propias filas; corríjalos antes de importar. No se guardó ningún registro.',
+          requiresForce: false,
+          conflicts: excelConflicts
+        });
+      }
+
+      // Sobrescritura: elimina (acotado al tenant) los registros de BD que chocan
+      const idsToDelete = [...new Set(dbConflicts.map((c) => c.existente.id))];
+      const deleted = await client.query(
+        'DELETE FROM schedules WHERE tenant_id = $1 AND id = ANY($2::varchar[])',
+        [tenantId, idsToDelete]
+      );
+      replaced = deleted.rowCount;
+    }
+
+    // 5. Inserción de los horarios del Excel
+    for (const p of pending) {
+      await client.query(
+        `INSERT INTO schedules (id, tenant_id, subject_id, teacher_id, classroom_id, day_of_week, start_time, end_time, max_students)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+        ['sch-' + crypto.randomUUID(), tenantId, p.subject.id, p.teacher.id, p.classroom.id, p.day, p.startTime, p.endTime, p.maxStudents]
+      );
+    }
+
     await client.query('COMMIT');
     return res.status(201).json({
       success: true,
-      message: 'Horarios importados correctamente',
+      message: replaced > 0
+        ? `Horarios importados correctamente (${replaced} horario(s) existente(s) sobrescrito(s))`
+        : 'Horarios importados correctamente',
       filename: req.file.originalname,
-      inserted
+      inserted: pending.length,
+      replaced
     });
   } catch (err) {
     if (client) {
