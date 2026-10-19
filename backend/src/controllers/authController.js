@@ -429,30 +429,26 @@ exports.completeExternalRegistration = async (req, res) => {
     return res.status(400).json({ error: 'Token de registro inválido o expirado' });
   }
 
+  let decoded;
   try {
-    // Validar que el token temporal de OAuth sea legítimo
-    const decoded = jwt.verify(token, process.env.JWT_SECRET || JWT_SECRET);
+    decoded = jwt.verify(token, process.env.JWT_SECRET || JWT_SECRET);
+  } catch (tokenErr) {
+    return res.status(400).json({ error: 'Token de registro inválido o expirado' });
+  }
 
-    // Asignar el prefijo correcto usando la función de IDs (C001..C999 o M001..M999)
-    // (Asumiendo que rol_id determina si es docente o coordinador)
+  const client = await pool.connect();
+
+  try {
+    await client.query('BEGIN');
+
     const tipoRol = (rol_id === 1 || rol_id === '1' || rol_id === 'role-coord' || String(rol_id || '').toLowerCase().includes('coord')) 
       ? 'coordinador' 
       : 'profesor'; 
-    const identificador = await generateIdentifier(tipoRol);
-
-    // Mapear rol_id al ID en BD
-    const dbRoleId = tipoRol === 'coordinador' ? 'role-coord' : 'role-teacher';
-
-    // Mapear tenant_id al tenant en BD
-    let dbTenantId = tenant_id;
-    if (!dbTenantId || dbTenantId === 1 || dbTenantId === '1') {
-      dbTenantId = 'tenant-itc';
-    }
+    const identificador = await generateIdentifier(tipoRol, client);
 
     const fullName = `${nombre || ''} ${apellidos || ''}`.trim() || 'Usuario Externo';
 
-    // Insertar en la BD (Nota: sin contraseña, ya que es login externo)
-    const insertUser = await pool.query(
+    const insertUser = await client.query(
       `INSERT INTO usuarios (identificador, nombre, apellidos, email, provider, provider_id) 
        VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
       [identificador, nombre, apellidos, decoded.email, decoded.provider, decoded.provider_id]
@@ -460,14 +456,15 @@ exports.completeExternalRegistration = async (req, res) => {
 
     const userId = insertUser.rows[0].id;
 
-    // Insertar relación de rol y tenant
-    await pool.query(
+    await client.query(
       `INSERT INTO usuarios_roles (usuario_id, rol_id, tenant_id) VALUES ($1, $2, $3)`,
-      [userId, dbRoleId, dbTenantId]
+      [userId, rol_id, tenant_id]
     );
 
+    await client.query('COMMIT');
+
     // Consultar el usuario creado completo con sus relaciones
-    const userRes = await pool.query(
+    const userRes = await client.query(
       `SELECT u.*, COALESCE(r.nombre, r.name) AS role_name, t.name AS tenant_name
        FROM users u
        LEFT JOIN roles r ON u.role_id = r.id
@@ -482,10 +479,10 @@ exports.completeExternalRegistration = async (req, res) => {
     const tokenPayload = {
       sub: user.id || userId,
       id: user.id || userId,
-      tenant_id: user.tenant_id || dbTenantId,
+      tenant_id: user.tenant_id || tenant_id,
       role: roleName,
       role_name: roleName,
-      role_id: user.role_id || dbRoleId,
+      role_id: user.role_id || rol_id,
       email: user.email || decoded.email,
       name: user.name || fullName,
       identifier: finalIdentifier,
@@ -493,7 +490,7 @@ exports.completeExternalRegistration = async (req, res) => {
     };
 
     const accessToken = jwt.sign(tokenPayload, process.env.JWT_SECRET || JWT_SECRET, { expiresIn: '15m' });
-    const refreshToken = jwt.sign({ sub: user.id || userId, tenant_id: user.tenant_id || dbTenantId }, process.env.JWT_REFRESH_SECRET || JWT_REFRESH_SECRET, { expiresIn: '7d' });
+    const refreshToken = jwt.sign({ sub: user.id || userId, tenant_id: user.tenant_id || tenant_id }, process.env.JWT_REFRESH_SECRET || JWT_REFRESH_SECRET, { expiresIn: '7d' });
 
     res.cookie('refresh_token', refreshToken, {
       httpOnly: true,
@@ -516,8 +513,24 @@ exports.completeExternalRegistration = async (req, res) => {
     });
 
   } catch (error) {
+    if (client) {
+      try {
+        await client.query('ROLLBACK');
+      } catch (rbErr) {
+        console.error('Error al ejecutar ROLLBACK:', rbErr);
+      }
+    }
+
+    if (error.code === '23505') {
+      return res.status(409).json({ error: 'El correo electrónico ya está registrado.' });
+    }
+
     console.error('Error en completeExternalRegistration:', error);
-    return res.status(400).json({ error: 'Token de registro inválido o expirado' });
+    return res.status(500).json({ error: 'Error en el servidor al intentar completar el registro.' });
+  } finally {
+    if (client) {
+      client.release();
+    }
   }
 };
 

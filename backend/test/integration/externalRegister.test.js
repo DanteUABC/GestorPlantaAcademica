@@ -12,7 +12,16 @@ describe('Integración: Registro y Autenticación con Correo Externo (OAuth & De
 
     beforeEach(() => {
         vi.clearAllMocks();
-        poolQuerySpy = vi.spyOn(pool, 'query');
+        poolQuerySpy = vi.spyOn(pool, 'query').mockResolvedValue({ rows: [] });
+        vi.spyOn(pool, 'connect').mockImplementation(async () => ({
+            query: vi.fn(async (text, params) => {
+                if (typeof text === 'string' && (text === 'BEGIN' || text === 'COMMIT' || text === 'ROLLBACK')) {
+                    return { rowCount: 1, rows: [] };
+                }
+                return pool.query(text, params);
+            }),
+            release: vi.fn()
+        }));
     });
 
     afterEach(() => {

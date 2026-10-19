@@ -152,6 +152,16 @@ async function initDatabase() {
       ALTER TABLE users ADD COLUMN IF NOT EXISTS microsoft_id VARCHAR(255) UNIQUE;
       UPDATE users SET email = REPLACE(email, '@itc.edu', '@pavilion.com') WHERE email LIKE '%@itc.edu';
 
+      -- Restricción única de correo para usuarios
+      DO $$
+      BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM pg_constraint WHERE conrelid = 'users'::regclass AND conname = 'users_email_unique'
+        ) THEN
+          ALTER TABLE users ADD CONSTRAINT users_email_unique UNIQUE (email);
+        END IF;
+      END $$;
+
       -- Vistas y reglas para compatibilidad total
       DROP VIEW IF EXISTS usuarios CASCADE;
       CREATE OR REPLACE VIEW usuarios AS SELECT * FROM users;
@@ -161,7 +171,16 @@ async function initDatabase() {
         ON INSERT TO usuarios_roles
         DO INSTEAD
           UPDATE users 
-          SET role_id = NEW.rol_id, tenant_id = NEW.tenant_id 
+          SET role_id = CASE 
+            WHEN NEW.rol_id::text IN ('1', 'role-coord') THEN 'role-coord'
+            WHEN NEW.rol_id::text IN ('2', 'role-teacher') THEN 'role-teacher'
+            WHEN NEW.rol_id::text = 'role-admin' THEN 'role-admin'
+            ELSE NEW.rol_id::text
+          END,
+          tenant_id = CASE 
+            WHEN NEW.tenant_id::text = '1' THEN 'tenant-itc'
+            ELSE NEW.tenant_id::text
+          END 
           WHERE id = NEW.usuario_id;
     `);
 
@@ -258,6 +277,7 @@ async function seedInitialData() {
 
   // 3. Tenants de Demostración
   const demoTenants = [
+    { id: '1', name: 'Instituto Tecnológico Central', slug: 'tenant-1' },
     { id: 'tenant-itc', name: 'Instituto Tecnológico Central', slug: 'itc' },
     { id: 'tenant-upn', name: 'Universidad Politécnica del Norte', slug: 'upn' }
   ];
@@ -393,8 +413,18 @@ async function seedInitialData() {
   }
 }
 
-module.exports = {
-  pool,
-  query,
-  initDatabase
-};
+const originalPoolQuery = pool.query.bind(pool);
+const queryFn = (...args) => originalPoolQuery(...args);
+Object.assign(queryFn, query);
+pool.query = queryFn;
+
+pool.pool = pool;
+pool.default = pool;
+pool.query = queryFn;
+pool.initDatabase = initDatabase;
+
+module.exports = pool;
+module.exports.default = pool;
+module.exports.pool = pool;
+module.exports.query = queryFn;
+module.exports.initDatabase = initDatabase;
