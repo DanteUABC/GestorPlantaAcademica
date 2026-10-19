@@ -263,82 +263,16 @@ const uploadExcelMiddleware = (req, res, next) => {
 
 const XLSX = require('xlsx');
 const crypto = require('crypto');
-
-const MAX_EXCEL_ROWS = 2000;
-
-// Normaliza texto: minúsculas, sin acentos ni símbolos (para encabezados, días y búsquedas)
-const normalizeKey = (v) =>
-  String(v ?? '')
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase()
-    .replace(/[^a-z0-9]/g, '');
-
-// Encabezado normalizado -> campo interno
-const HEADER_ALIASES = {
-  codigomateria: 'subject_code',
-  codigo: 'subject_code',
-  correoprofesor: 'teacher_email',
-  correodocente: 'teacher_email',
-  correomaestro: 'teacher_email',
-  aula: 'classroom_name',
-  salon: 'classroom_name',
-  dia: 'day_of_week',
-  horainicio: 'start_time',
-  inicio: 'start_time',
-  horafin: 'end_time',
-  fin: 'end_time',
-  cupo: 'max_students',
-  maxalumnos: 'max_students'
-};
-
-const REQUIRED_FIELDS = {
-  subject_code: 'Código Materia',
-  teacher_email: 'Correo Profesor',
-  classroom_name: 'Aula',
-  day_of_week: 'Día',
-  start_time: 'Hora Inicio',
-  end_time: 'Hora Fin'
-};
-
-const DAY_NAMES = {
-  lunes: 'Lunes',
-  martes: 'Martes',
-  miercoles: 'Miércoles',
-  jueves: 'Jueves',
-  viernes: 'Viernes',
-  sabado: 'Sábado'
-};
-
-// Acepta 'H:MM', 'HH:MM', 'HH:MM:SS' o la fracción de día que guarda Excel para celdas de hora
-function parseExcelTime(value) {
-  let minutes;
-  if (typeof value === 'number') {
-    if (value < 0 || value >= 1) return null;
-    minutes = Math.round(value * 24 * 60);
-  } else {
-    const m = String(value ?? '').trim().match(/^(\d{1,2}):(\d{2})(?::\d{2})?$/);
-    if (!m) return null;
-    minutes = Number(m[1]) * 60 + Number(m[2]);
-  }
-  if (minutes >= 24 * 60) return null;
-  const hh = String(Math.floor(minutes / 60)).padStart(2, '0');
-  const mm = String(minutes % 60).padStart(2, '0');
-  return `${hh}:${mm}`;
-}
-
-// Convierte las filas crudas de la hoja a objetos con los campos internos
-function mapExcelRows(rawRows) {
-  return rawRows.map((raw) => {
-    const mapped = {};
-    for (const [header, value] of Object.entries(raw)) {
-      const field = HEADER_ALIASES[normalizeKey(header)];
-      if (field && mapped[field] === undefined) mapped[field] = value;
-    }
-    return mapped;
-  });
-}
-
+const {
+  MAX_EXCEL_ROWS,
+  normalizeKey,
+  HEADER_ALIASES,
+  REQUIRED_FIELDS,
+  DAY_NAMES,
+  parseExcelTime,
+  mapExcelRows,
+  parseExcelBuffer
+} = require('../utils/excelParser');
 const { hasOverlap } = require('../utils/overlapValidator');
 
 // Detecta empalmes de profesor y de aula entre las filas nuevas del Excel y los horarios existentes
@@ -734,7 +668,11 @@ module.exports = {
   getTeacherSchedules,
   uploadExcelMiddleware,
   uploadExcelSchedule,
-  exportSchedules
+  exportSchedules,
+  parseExcelBuffer,
+  mapExcelRows,
+  parseExcelTime,
+  normalizeKey
 };
 
 module.exports.exportSchedules = exportSchedules;
