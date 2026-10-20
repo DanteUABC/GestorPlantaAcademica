@@ -1,6 +1,6 @@
 <template>
-  <v-container class="fill-height justify-center align-center py-8">
-    <v-card width="520" elevation="8" rounded="lg" class="pa-6">
+  <v-container class="fill-height justify-center align-center py-6" style="min-height: 100vh; overflow-y: auto;">
+    <v-card width="520" max-width="95vw" elevation="8" rounded="lg" class="pa-6 my-auto" style="position: relative; z-index: 2;">
       <div class="text-center mb-6">
         <v-avatar color="primary" size="64" class="mb-3">
           <v-icon icon="mdi-account-plus" size="36" color="white"></v-icon>
@@ -32,15 +32,17 @@
           {{ errorMessage }}
         </v-alert>
 
-        <v-form @submit.prevent="submitRegistration" v-model="isFormValid">
+        <v-form ref="formRef" @submit.prevent="submitRegistration" v-model="isFormValid">
           <!-- Nombre(s) -->
           <v-text-field
             v-model="nombre"
             label="Nombre(s)"
+            placeholder="Ej. Juan"
             variant="outlined"
             density="comfortable"
             prepend-inner-icon="mdi-account-outline"
             class="mb-2"
+            validate-on="blur lazy"
             :rules="[v => !!v || 'El nombre es obligatorio']"
             required
           ></v-text-field>
@@ -49,10 +51,12 @@
           <v-text-field
             v-model="apellidos"
             label="Apellidos"
+            placeholder="Ej. Pérez"
             variant="outlined"
             density="comfortable"
             prepend-inner-icon="mdi-account-details-outline"
             class="mb-2"
+            validate-on="blur lazy"
             :rules="[v => !!v || 'Los apellidos son obligatorios']"
             required
           ></v-text-field>
@@ -74,7 +78,6 @@
 
           <!-- Institución / Tenant -->
           <v-select
-            v-if="tenants.length > 0"
             v-model="tenant_id"
             :items="tenants"
             item-title="name"
@@ -95,7 +98,6 @@
             size="large"
             class="text-none font-weight-bold"
             :loading="loading"
-            :disabled="!isFormValid"
           >
             Completar Registro
           </v-btn>
@@ -114,6 +116,7 @@ import api from '../api/client';
 const route = useRoute();
 const router = useRouter();
 const authStore = useAuthStore();
+const formRef = ref(null);
 
 const email = ref('');
 const regToken = ref('');
@@ -121,10 +124,13 @@ const nombre = ref('');
 const apellidos = ref('');
 const rol_id = ref(2); // Por defecto Profesor
 const tenant_id = ref('tenant-itc');
-const tenants = ref([]);
+const tenants = ref([
+  { id: 'tenant-itc', name: 'Instituto Tecnológico Central' },
+  { id: 'tenant-upn', name: 'Universidad Politécnica del Norte' }
+]);
 const roles = [{ title: 'Profesor', value: 2 }, { title: 'Coordinador', value: 1 }];
 
-const isFormValid = ref(false);
+const isFormValid = ref(null);
 const loading = ref(false);
 const errorMessage = ref('');
 
@@ -138,8 +144,8 @@ onMounted(async () => {
 
     try {
       const res = await api.get('/auth/tenants');
-      tenants.value = res.data;
-      if (tenants.value.length > 0) {
+      if (res.data && res.data.length > 0) {
+        tenants.value = res.data;
         tenant_id.value = tenants.value[0].id;
       }
     } catch (e) {
@@ -149,6 +155,15 @@ onMounted(async () => {
 });
 
 const submitRegistration = async () => {
+    if (formRef.value && typeof formRef.value.validate === 'function') {
+      const { valid } = await formRef.value.validate();
+      if (!valid) return;
+    } else {
+      if (!nombre.value || !apellidos.value || !rol_id.value || !tenant_id.value) {
+        return;
+      }
+    }
+
     loading.value = true;
     errorMessage.value = '';
 
@@ -180,6 +195,7 @@ defineExpose({
   rol_id,
   tenant_id,
   email,
-  regToken
+  regToken,
+  formRef
 });
 </script>

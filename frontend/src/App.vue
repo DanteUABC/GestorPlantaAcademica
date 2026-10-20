@@ -95,7 +95,7 @@
     </v-main>
 
     <!-- Footer -->
-    <v-footer app border class="text-center d-flex justify-center text-caption text-grey-darken-1 py-1">
+    <v-footer border class="text-center d-flex justify-center text-caption text-grey-darken-1 py-1">
       <span>Gestor de Planta Académica SaaS Multi-tenant &copy; 2026 — Modelo "Shared Database, Shared Schema"</span>
     </v-footer>
   </v-app>
