@@ -4,10 +4,11 @@ import LoginView from '../views/LoginView.vue';
 import CoordinatorView from '../views/CoordinatorView.vue';
 import TeacherView from '../views/TeacherView.vue';
 import UnauthorizedView from '../views/UnauthorizedView.vue';
+import ExternalRegisterView from '../views/ExternalRegisterView.vue';
 
 const routes = [
   { path: '/login', name: 'Login', component: LoginView },
-  { path: '/register/external', name: 'ExternalRegister', component: () => import('../views/ExternalRegisterView.vue'), meta: { isPublic: true } },
+  { path: '/register/external', name: 'ExternalRegister', component: ExternalRegisterView, meta: { isPublic: true } },
   { 
     path: '/coordinator', 
     name: 'Coordinator', 

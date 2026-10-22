@@ -8,6 +8,7 @@ vi.mock('../../views/LoginView.vue', () => ({ default: { template: '<div></div>'
 vi.mock('../../views/CoordinatorView.vue', () => ({ default: { template: '<div></div>' } }));
 vi.mock('../../views/TeacherView.vue', () => ({ default: { template: '<div></div>' } }));
 vi.mock('../../views/UnauthorizedView.vue', () => ({ default: { template: '<div></div>' } }));
+vi.mock('../../views/ExternalRegisterView.vue', () => ({ default: { template: '<div></div>' } }));
 
 describe('Vue Router - Navigation Guards', () => {
     beforeEach(() => {

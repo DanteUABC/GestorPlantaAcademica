@@ -1,6 +1,6 @@
 <template>
-  <v-container class="fill-height justify-center align-center py-6" style="min-height: 100vh; overflow-y: auto;">
-    <v-card width="520" max-width="95vw" elevation="8" rounded="lg" class="pa-6 my-auto" style="position: relative; z-index: 2;">
+  <v-container class="fill-height justify-center align-center py-8">
+    <v-card width="520" max-width="95vw" elevation="8" rounded="lg" class="pa-6 my-auto" style="position: relative; z-index: 2; pointer-events: auto;">
       <div class="text-center mb-6">
         <v-avatar color="primary" size="64" class="mb-3">
           <v-icon icon="mdi-account-plus" size="36" color="white"></v-icon>
@@ -35,6 +35,7 @@
         <v-form ref="formRef" @submit.prevent="submitRegistration" v-model="isFormValid">
           <!-- Nombre(s) -->
           <v-text-field
+            ref="nombreInputRef"
             v-model="nombre"
             label="Nombre(s)"
             placeholder="Ej. Juan"
@@ -45,6 +46,7 @@
             validate-on="blur lazy"
             :rules="[v => !!v || 'El nombre es obligatorio']"
             required
+            autofocus
           ></v-text-field>
 
           <!-- Apellidos -->
@@ -108,7 +110,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue';
+import { ref, onMounted, nextTick } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useAuthStore } from '../stores/authStore';
 import api from '../api/client';
@@ -117,6 +119,7 @@ const route = useRoute();
 const router = useRouter();
 const authStore = useAuthStore();
 const formRef = ref(null);
+const nombreInputRef = ref(null);
 
 const email = ref('');
 const regToken = ref('');
@@ -152,6 +155,18 @@ onMounted(async () => {
       // Usar tenant por defecto si la llamada falla
       tenant_id.value = 'tenant-itc';
     }
+
+    await nextTick();
+    setTimeout(() => {
+      if (nombreInputRef.value) {
+        if (typeof nombreInputRef.value.focus === 'function') {
+          nombreInputRef.value.focus();
+        } else if (nombreInputRef.value.$el) {
+          const inputEl = nombreInputRef.value.$el.querySelector('input');
+          if (inputEl) inputEl.focus();
+        }
+      }
+    }, 100);
 });
 
 const submitRegistration = async () => {
@@ -196,6 +211,7 @@ defineExpose({
   tenant_id,
   email,
   regToken,
-  formRef
+  formRef,
+  nombreInputRef
 });
 </script>
