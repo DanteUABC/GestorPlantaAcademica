@@ -144,7 +144,7 @@ async function createSchedule(req, res) {
     }
 
     // 5. Inserción del nuevo horario aislado por tenant_id
-    const scheduleId = 'sch-' + Date.now();
+    const scheduleId = 'sch-' + Date.now() + '-' + Math.random().toString(36).slice(2, 7);
     const capacity = assignedStudents;
 
     await query.run(
