@@ -152,7 +152,8 @@ describe('Migración DDL: Clasificación por tipo de instalación en classrooms'
         body: {
           name: testName,
           building: 'Edificio Norte',
-          capacity: 20
+          capacity: 20,
+          type: 'Aula Teórica'
         }
       };
 

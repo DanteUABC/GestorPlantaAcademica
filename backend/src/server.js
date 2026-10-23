@@ -75,6 +75,8 @@ app.post('/api/subjects', requireRole(['Coordinador', 'Administrador']), catalog
 
 app.get('/api/classrooms', catalogController.getClassrooms);
 app.post('/api/classrooms', requireRole(['Coordinador', 'Administrador']), catalogController.createClassroom);
+app.put('/api/classrooms/:id', requireRole(['Coordinador', 'Administrador']), catalogController.updateClassroom);
+app.delete('/api/classrooms/:id', requireRole(['Coordinador', 'Administrador']), catalogController.deleteClassroom);
 
 app.get('/api/teachers', catalogController.getTeachers);
 
