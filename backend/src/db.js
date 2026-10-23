@@ -2,6 +2,7 @@ require('dotenv').config();
 const { Pool } = require('pg');
 const bcrypt = require('bcryptjs');
 const { migrateExistingUserIdentifiers } = require('./utils/identifierHelper');
+const { migrateClassroomsType } = require('./utils/classroomMigration');
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL || 'postgresql://postgres:postgres@localhost:5432/gestor_planta'
@@ -101,6 +102,7 @@ async function initDatabase() {
       name VARCHAR(255) NOT NULL,
       building VARCHAR(255),
       capacity INTEGER NOT NULL DEFAULT 30,
+      type VARCHAR(50) NOT NULL DEFAULT 'Aula Teórica',
       FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE,
       UNIQUE(tenant_id, name)
     );
@@ -247,6 +249,13 @@ async function initDatabase() {
     console.warn('Nota en migraciones incrementales:', migErr.message);
   }
 
+  // Migración DDL para classrooms: type e índice compuesto multi-tenant
+  try {
+    await migrateClassroomsType(pool);
+  } catch (classroomsMigErr) {
+    console.warn('Nota en migración de classrooms:', classroomsMigErr.message);
+  }
+
   await seedInitialData();
   await query.exec('UPDATE roles SET nombre = name WHERE nombre IS NULL;');
   await migrateExistingUserIdentifiers(pool);
@@ -317,16 +326,16 @@ async function seedInitialData() {
 
   // 4. Semillado de Aulas y Materias para ITC
   const itcClassrooms = [
-    { id: 'cr-a101', tenant_id: 'tenant-itc', name: 'Aula A-101', building: 'Edificio de Ciencias', capacity: 35 },
-    { id: 'cr-lab1', tenant_id: 'tenant-itc', name: 'Laboratorio de Cómputo 1', building: 'Edificio Tecnologías', capacity: 25 },
-    { id: 'cr-b202', tenant_id: 'tenant-itc', name: 'Aula B-202', building: 'Edificio de Ingeniería', capacity: 40 }
+    { id: 'cr-a101', tenant_id: 'tenant-itc', name: 'Aula A-101', building: 'Edificio de Ciencias', capacity: 35, type: 'Aula Teórica' },
+    { id: 'cr-lab1', tenant_id: 'tenant-itc', name: 'Laboratorio de Cómputo 1', building: 'Edificio Tecnologías', capacity: 25, type: 'Laboratorio de Cómputo' },
+    { id: 'cr-b202', tenant_id: 'tenant-itc', name: 'Aula B-202', building: 'Edificio de Ingeniería', capacity: 40, type: 'Aula Teórica' }
   ];
 
   for (const cr of itcClassrooms) {
     const existing = await query.get('SELECT id FROM classrooms WHERE id = ?', [cr.id]);
     if (!existing) {
-      await query.run('INSERT INTO classrooms (id, tenant_id, name, building, capacity) VALUES (?, ?, ?, ?, ?)',
-        [cr.id, cr.tenant_id, cr.name, cr.building, cr.capacity]);
+      await query.run('INSERT INTO classrooms (id, tenant_id, name, building, capacity, type) VALUES (?, ?, ?, ?, ?, ?)',
+        [cr.id, cr.tenant_id, cr.name, cr.building, cr.capacity, cr.type || 'Aula Teórica']);
     }
   }
 

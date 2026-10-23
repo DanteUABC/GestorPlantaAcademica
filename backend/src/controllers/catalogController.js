@@ -40,7 +40,7 @@ async function createSubject(req, res) {
 async function getClassrooms(req, res) {
   try {
     const classrooms = await query.all(
-      'SELECT id, name, building, capacity FROM classrooms WHERE tenant_id = ? ORDER BY name ASC',
+      'SELECT id, name, building, capacity, type FROM classrooms WHERE tenant_id = ? ORDER BY name ASC',
       [req.tenant_id]
     );
     res.json(classrooms);
@@ -52,18 +52,19 @@ async function getClassrooms(req, res) {
 // Create a classroom
 async function createClassroom(req, res) {
   try {
-    const { name, building, capacity } = req.body;
+    const { name, building, capacity, type } = req.body;
     if (!name) {
       return res.status(400).json({ error: 'El nombre del aula es obligatorio' });
     }
 
+    const classroomType = type && typeof type === 'string' && type.trim() ? type.trim() : 'Aula Teórica';
     const id = 'cr-' + Date.now();
     await query.run(
-      'INSERT INTO classrooms (id, tenant_id, name, building, capacity) VALUES (?, ?, ?, ?, ?)',
-      [id, req.tenant_id, name.trim(), building || '', capacity || 30]
+      'INSERT INTO classrooms (id, tenant_id, name, building, capacity, type) VALUES (?, ?, ?, ?, ?, ?)',
+      [id, req.tenant_id, name.trim(), building || '', capacity || 30, classroomType]
     );
 
-    res.status(201).json({ id, name: name.trim(), building: building || '', capacity: capacity || 30 });
+    res.status(201).json({ id, name: name.trim(), building: building || '', capacity: capacity || 30, type: classroomType });
   } catch (err) {
     if (err.message && err.message.includes('UNIQUE')) {
       return res.status(409).json({ error: 'Ya existe un aula con ese nombre en esta institución' });
