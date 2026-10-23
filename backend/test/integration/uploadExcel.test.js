@@ -98,7 +98,8 @@ describe('Integración: carga de horarios desde Excel (transaccional)', () => {
                     day_of_week: params[5],
                     start_time: params[6],
                     end_time: params[7],
-                    max_students: params[8]
+                    max_students: params[8],
+                    group_code: params[9] || 'G1'
                 });
                 return { rows: [], rowCount: 1 };
             }
@@ -178,9 +179,9 @@ describe('Integración: carga de horarios desde Excel (transaccional)', () => {
         expect(sqlCalls()).not.toContain('ROLLBACK');
 
         const insert = client.queries.find((q) => /INSERT INTO schedules/.test(q.sql));
-        // [id, tenant_id, subject_id, teacher_id, classroom_id, day, start, end, max_students]
+        // [id, tenant_id, subject_id, teacher_id, classroom_id, day, start, end, max_students, group_code]
         expect(insert.params[1]).toBe('tenant-itc');
-        expect(insert.params.slice(2)).toEqual(['sub-prog', 'usr-prof-1', 'cr-lab1', 'Miércoles', '14:00', '16:00', 20]);
+        expect(insert.params.slice(2)).toEqual(['sub-prog', 'usr-prof-1', 'cr-lab1', 'Miércoles', '14:00', '16:00', 20, 'G1']);
         expect(client.release).toHaveBeenCalled();
     });
 

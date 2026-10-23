@@ -25,7 +25,11 @@ const HEADER_ALIASES = {
   horafin: 'end_time',
   fin: 'end_time',
   cupo: 'max_students',
-  maxalumnos: 'max_students'
+  maxalumnos: 'max_students',
+  grupo: 'group_code',
+  group: 'group_code',
+  codigogrupo: 'group_code',
+  groupcode: 'group_code'
 };
 
 const REQUIRED_FIELDS = {
@@ -208,6 +212,11 @@ function parseExcelBuffer(buffer) {
       continue;
     }
 
+    let groupCode = null;
+    if (row.group_code !== undefined && row.group_code !== null && String(row.group_code).trim() !== '') {
+      groupCode = String(row.group_code).trim();
+    }
+
     validRows.push({
       fila,
       subject_code: subjectCode,
@@ -216,7 +225,8 @@ function parseExcelBuffer(buffer) {
       day_of_week: day,
       start_time: startTime,
       end_time: endTime,
-      ...(maxStudents !== null ? { max_students: maxStudents } : {})
+      ...(maxStudents !== null ? { max_students: maxStudents } : {}),
+      ...(groupCode !== null ? { group_code: groupCode } : {})
     });
   }
 

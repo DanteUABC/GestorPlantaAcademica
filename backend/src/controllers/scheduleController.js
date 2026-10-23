@@ -20,7 +20,8 @@ async function createSchedule(req, res) {
       day_of_week,
       start_time,
       end_time,
-      max_students
+      max_students,
+      group_code
     } = req.body;
 
     if (!subject_id || !teacher_id || !classroom_id || !day_of_week || !start_time || !end_time) {
@@ -104,14 +105,38 @@ async function createSchedule(req, res) {
       });
     }
 
-    // 4. Inserción del nuevo horario aislado por tenant_id
+    // 4. MOTOR ANTI-EMPALME: Comprobar colisión de Grupo de Alumnos
+    const group = group_code && String(group_code).trim() ? String(group_code).trim() : 'G1';
+    const groupConflict = await query.get(
+      `SELECT s.*, sub.name as subject_name, cr.name as classroom_name
+       FROM schedules s
+       JOIN subjects sub ON s.subject_id = sub.id
+       JOIN classrooms cr ON s.classroom_id = cr.id
+       WHERE s.tenant_id = ?
+         AND s.group_code = ?
+         AND s.day_of_week = ?
+         AND (s.start_time < ? AND s.end_time > ?)`,
+      [req.tenant_id, group, day_of_week, end_time, start_time]
+    );
+
+    if (groupConflict) {
+      const classroomStr = /^aula\b/i.test(groupConflict.classroom_name)
+        ? groupConflict.classroom_name
+        : (/^lab/i.test(groupConflict.classroom_name) ? groupConflict.classroom_name : `Aula ${groupConflict.classroom_name}`);
+      return res.status(409).json({
+        conflictType: 'GROUP_CONFLICT',
+        error: `¡Empalme de Grupo detectado! El Grupo '${group}' ya tiene clase de '${groupConflict.subject_name}' el ${groupConflict.day_of_week} de ${groupConflict.start_time} a ${groupConflict.end_time} en el ${classroomStr}`
+      });
+    }
+
+    // 5. Inserción del nuevo horario aislado por tenant_id
     const scheduleId = 'sch-' + Date.now();
     const capacity = assignedStudents;
 
     await query.run(
-      `INSERT INTO schedules (id, tenant_id, subject_id, teacher_id, classroom_id, day_of_week, start_time, end_time, max_students)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [scheduleId, req.tenant_id, subject_id, teacher_id, classroom_id, day_of_week, start_time, end_time, capacity]
+      `INSERT INTO schedules (id, tenant_id, subject_id, teacher_id, classroom_id, day_of_week, start_time, end_time, max_students, group_code)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [scheduleId, req.tenant_id, subject_id, teacher_id, classroom_id, day_of_week, start_time, end_time, capacity, group]
     );
 
     res.status(201).json({
@@ -127,7 +152,8 @@ async function createSchedule(req, res) {
         day_of_week,
         start_time,
         end_time,
-        max_students: capacity
+        max_students: capacity,
+        group_code: group
       }
     });
   } catch (err) {
@@ -146,6 +172,7 @@ async function getCoordinatorSchedules(req, res) {
          s.start_time,
          s.end_time,
          s.max_students,
+         s.group_code,
          s.created_at,
          sub.id as subject_id,
          sub.code as subject_code,
@@ -211,6 +238,7 @@ async function getTeacherSchedules(req, res) {
          s.start_time,
          s.end_time,
          s.max_students,
+         s.group_code,
          sub.code as subject_code,
          sub.name as subject_name,
          sub.credits as subject_credits,
@@ -305,7 +333,8 @@ function detectOverlaps(pending, existing) {
     aula: p.classroom.name,
     dia: p.day,
     hora_inicio: p.startTime,
-    hora_fin: p.endTime
+    hora_fin: p.endTime,
+    grupo: p.groupCode || 'G1'
   });
   const existenteInfo = (e) => ({
     id: e.id,
@@ -314,7 +343,8 @@ function detectOverlaps(pending, existing) {
     aula: e.classroom_name,
     dia: e.day_of_week,
     hora_inicio: e.start_time,
-    hora_fin: e.end_time
+    hora_fin: e.end_time,
+    grupo: e.group_code || 'G1'
   });
   const range = (p) => ({ day_of_week: p.day, start_time: p.startTime, end_time: p.endTime });
 
@@ -336,7 +366,8 @@ function detectOverlaps(pending, existing) {
       for (const e of existingByDay.get(day) || []) {
         const sameTeacher = e.teacher_id === p.teacher.id;
         const sameClassroom = e.classroom_id === p.classroom.id;
-        if (!sameTeacher && !sameClassroom) continue;
+        const sameGroup = Boolean(e.group_code && p.groupCode && String(e.group_code).trim().toLowerCase() === String(p.groupCode).trim().toLowerCase());
+        if (!sameTeacher && !sameClassroom && !sameGroup) continue;
         if (!hasOverlap(range(p), { day_of_week: e.day_of_week, start_time: e.start_time, end_time: e.end_time })) continue;
 
         if (sameTeacher) {
@@ -357,6 +388,15 @@ function detectOverlaps(pending, existing) {
             existente: existenteInfo(e)
           });
         }
+        if (sameGroup) {
+          conflicts.push({
+            tipo: 'GRUPO',
+            origen: 'BD',
+            mensaje: `Fila ${p.fila}: el grupo "${p.groupCode}" ya tiene "${e.subject_name}" el ${day} de ${e.start_time} a ${e.end_time}`,
+            nuevo: nuevoInfo(p),
+            existente: existenteInfo(e)
+          });
+        }
       }
     }
 
@@ -367,7 +407,8 @@ function detectOverlaps(pending, existing) {
         const b = news[j];
         const sameTeacher = a.teacher.id === b.teacher.id;
         const sameClassroom = a.classroom.id === b.classroom.id;
-        if (!sameTeacher && !sameClassroom) continue;
+        const sameGroup = Boolean(a.groupCode && b.groupCode && String(a.groupCode).trim().toLowerCase() === String(b.groupCode).trim().toLowerCase());
+        if (!sameTeacher && !sameClassroom && !sameGroup) continue;
         if (!hasOverlap(range(a), range(b))) continue;
 
         if (sameTeacher) {
@@ -384,6 +425,15 @@ function detectOverlaps(pending, existing) {
             tipo: 'AULA',
             origen: 'EXCEL',
             mensaje: `Filas ${a.fila} y ${b.fila}: el aula "${a.classroom.name}" está asignada dos veces empalmada el ${day}`,
+            nuevo: nuevoInfo(a),
+            existente: nuevoInfo(b)
+          });
+        }
+        if (sameGroup) {
+          conflicts.push({
+            tipo: 'GRUPO',
+            origen: 'EXCEL',
+            mensaje: `Filas ${a.fila} y ${b.fila}: el grupo "${a.groupCode}" tiene dos clases empalmadas el ${day}`,
             nuevo: nuevoInfo(a),
             existente: nuevoInfo(b)
           });
@@ -527,8 +577,10 @@ async function uploadExcelSchedule(req, res) {
         continue;
       }
 
+      const groupCode = (row.group_code && String(row.group_code).trim()) ? String(row.group_code).trim() : null;
+
       // Fila válida: se acumula; empalmes e inserción se resuelven después, sobre el conjunto completo
-      pending.push({ fila, subject, teacher, classroom, day, startTime, endTime, maxStudents });
+      pending.push({ fila, subject, teacher, classroom, day, startTime, endTime, maxStudents, groupCode });
     }
 
     // Si cualquier fila falló la validación, no se guarda ninguna
@@ -543,7 +595,7 @@ async function uploadExcelSchedule(req, res) {
 
     // 4. Detección de empalmes (contra la BD del tenant y entre filas del mismo Excel)
     const existingRes = await client.query(
-      `SELECT s.id, s.teacher_id, s.classroom_id, s.day_of_week, s.start_time, s.end_time,
+      `SELECT s.id, s.teacher_id, s.classroom_id, s.day_of_week, s.start_time, s.end_time, s.group_code,
               sub.name AS subject_name, u.name AS teacher_name, cr.name AS classroom_name
        FROM schedules s
        JOIN subjects sub ON s.subject_id = sub.id
@@ -594,9 +646,9 @@ async function uploadExcelSchedule(req, res) {
     // 5. Inserción de los horarios del Excel
     for (const p of pending) {
       await client.query(
-        `INSERT INTO schedules (id, tenant_id, subject_id, teacher_id, classroom_id, day_of_week, start_time, end_time, max_students)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-        ['sch-' + crypto.randomUUID(), tenantId, p.subject.id, p.teacher.id, p.classroom.id, p.day, p.startTime, p.endTime, p.maxStudents]
+        `INSERT INTO schedules (id, tenant_id, subject_id, teacher_id, classroom_id, day_of_week, start_time, end_time, max_students, group_code)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+        ['sch-' + crypto.randomUUID(), tenantId, p.subject.id, p.teacher.id, p.classroom.id, p.day, p.startTime, p.endTime, p.maxStudents, p.groupCode || 'G1']
       );
     }
 

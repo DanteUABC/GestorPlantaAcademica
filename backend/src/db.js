@@ -118,6 +118,7 @@ async function initDatabase() {
       start_time VARCHAR(5) NOT NULL,
       end_time VARCHAR(5) NOT NULL,
       max_students INTEGER NOT NULL DEFAULT 30,
+      group_code VARCHAR(50) NOT NULL DEFAULT 'G1',
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE,
       FOREIGN KEY (subject_id) REFERENCES subjects(id) ON DELETE CASCADE,
@@ -254,6 +255,19 @@ async function initDatabase() {
     await migrateClassroomsType(pool);
   } catch (classroomsMigErr) {
     console.warn('Nota en migración de classrooms:', classroomsMigErr.message);
+  }
+
+  // Migración para schedules: group_code
+  try {
+    await query.exec(`
+      ALTER TABLE schedules ADD COLUMN IF NOT EXISTS group_code VARCHAR(50) DEFAULT 'G1';
+      UPDATE schedules SET group_code = 'G1' WHERE group_code IS NULL;
+      ALTER TABLE schedules ALTER COLUMN group_code SET NOT NULL;
+      ALTER TABLE schedules ALTER COLUMN group_code SET DEFAULT 'G1';
+      CREATE INDEX IF NOT EXISTS idx_schedules_tenant_group ON schedules (tenant_id, group_code);
+    `);
+  } catch (schedMigErr) {
+    console.warn('Nota en migración de schedules group_code:', schedMigErr.message);
   }
 
   await seedInitialData();
