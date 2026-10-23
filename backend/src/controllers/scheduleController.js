@@ -46,6 +46,23 @@ async function createSchedule(req, res) {
     const classroom = await query.get('SELECT id, name, capacity FROM classrooms WHERE id = ? AND tenant_id = ?', [classroom_id, req.tenant_id]);
     if (!classroom) return res.status(404).json({ error: 'Aula no encontrada en esta institución' });
 
+    // Validación preventiva de aforo contra capacidad física del aula (Criterios 1 y 2)
+    let assignedStudents = classroom.capacity;
+    if (max_students !== undefined && max_students !== null && max_students !== '') {
+      const parsedMaxStudents = parseInt(max_students, 10);
+      if (isNaN(parsedMaxStudents) || parsedMaxStudents <= 0) {
+        return res.status(400).json({ error: 'El cupo de alumnos debe ser un número entero positivo mayor a cero.' });
+      }
+      if (parsedMaxStudents > classroom.capacity) {
+        return res.status(400).json({
+          error: `Discrepancia de aforo: El cupo solicitado (${parsedMaxStudents} alumnos) excede la capacidad máxima del aula "${classroom.name}" (${classroom.capacity} alumnos).`,
+          max_students: parsedMaxStudents,
+          classroom_capacity: classroom.capacity
+        });
+      }
+      assignedStudents = parsedMaxStudents;
+    }
+
     // 2. MOTOR ANTI-EMPALME: Comprobar colisión de horario del Docente
     // Regla de empalme: (start_time < new_end) AND (end_time > new_start)
     const teacherConflict = await query.get(
@@ -89,7 +106,7 @@ async function createSchedule(req, res) {
 
     // 4. Inserción del nuevo horario aislado por tenant_id
     const scheduleId = 'sch-' + Date.now();
-    const capacity = max_students ? Math.min(Number(max_students), classroom.capacity) : classroom.capacity;
+    const capacity = assignedStudents;
 
     await query.run(
       `INSERT INTO schedules (id, tenant_id, subject_id, teacher_id, classroom_id, day_of_week, start_time, end_time, max_students)
@@ -495,7 +512,13 @@ async function uploadExcelSchedule(req, res) {
         if (!Number.isInteger(requested) || requested <= 0) {
           rowErrors.push(`Cupo "${row.max_students}" no es válido (entero mayor a 0)`);
         } else if (classroom) {
-          maxStudents = Math.min(requested, classroom.capacity);
+          if (requested > classroom.capacity) {
+            rowErrors.push(
+              `Discrepancia de aforo: El cupo especificado (${requested} alumnos) supera la capacidad máxima del aula "${classroom.name}" (${classroom.capacity} alumnos)`
+            );
+          } else {
+            maxStudents = requested;
+          }
         }
       }
 
