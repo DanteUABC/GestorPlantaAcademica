@@ -61,6 +61,7 @@ describe('CoordinatorView.vue - Búsqueda de Maestro y Materia al armar horario'
           'v-chip': true,
           'v-list-item': true,
           'v-divider': true,
+          'v-progress-linear': true,
           'ExcelScheduleUploader': true
         }
       }

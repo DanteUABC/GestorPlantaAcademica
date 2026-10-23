@@ -80,6 +80,7 @@ describe('CoordinatorView.vue - Selector de Espacios y Alerta Dinámica de Sobre
           'v-chip': true,
           'v-list-item': true,
           'v-divider': true,
+          'v-progress-linear': true,
           'ExcelScheduleUploader': true
         }
       }

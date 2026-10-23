@@ -351,6 +351,44 @@
               </template>
             </v-autocomplete>
 
+            <!-- Medidor Visual de Carga Laboral del Docente -->
+            <div v-if="newSchedule.teacher_id" class="mb-3 teacher-workload-container">
+              <div class="d-flex justify-space-between align-center mb-1">
+                <span class="text-caption font-weight-medium text-medium-emphasis">
+                  {{ teacherMeterText }}
+                </span>
+                <span
+                  class="text-caption font-weight-bold"
+                  :class="{
+                    'text-success': teacherMeterColor === 'success',
+                    'text-warning': teacherMeterColor === 'warning',
+                    'text-error': teacherMeterColor === 'error'
+                  }"
+                >
+                  {{ teacherLoadPercentage }}% asignado
+                </span>
+              </div>
+              <v-progress-linear
+                :model-value="Math.min(100, teacherLoadPercentage)"
+                :color="teacherMeterColor"
+                height="22"
+                rounded
+                class="elevation-1"
+                :data-color="teacherMeterColor"
+                :data-color-name="teacherMeterColorName"
+              >
+                <template #default>
+                  <strong class="text-caption font-weight-bold text-white px-2 text-truncate">
+                    {{ teacherMeterText }}
+                  </strong>
+                </template>
+              </v-progress-linear>
+              <div v-if="totalHoursWithPending > maxWeeklyHours" class="text-caption text-error font-weight-medium mt-1">
+                <v-icon icon="mdi-alert" size="x-small" class="mr-1"></v-icon>
+                Esta clase de {{ pendingClassHours }} hrs haría que el docente supere su límite semanal ({{ totalHoursWithPending }} / {{ maxWeeklyHours }} hrs).
+              </div>
+            </div>
+
             <!-- Aula Física -->
             <v-select
               v-model="newSchedule.classroom_id"
@@ -516,6 +554,83 @@ const isCapacityExceeded = computed(() => {
 const capacityWarningMessage = computed(() => {
   if (!selectedClassroom.value || !isCapacityExceeded.value) return '';
   return `¡Sobrecupo detectado! El cupo ingresado (${newSchedule.value.max_students} alumnos) excede la capacidad máxima del aula "${selectedClassroom.value.name}" (${selectedClassroom.value.capacity} alumnos).`;
+});
+
+// Medidor reactivo de carga horaria del docente
+function calculateScheduleDurationHours(startTime, endTime) {
+  if (!startTime || !endTime || typeof startTime !== 'string' || typeof endTime !== 'string') return 0;
+  const sParts = startTime.split(':').map(Number);
+  const eParts = endTime.split(':').map(Number);
+  if (sParts.length < 2 || eParts.length < 2 || isNaN(sParts[0]) || isNaN(eParts[0])) return 0;
+  const startMin = sParts[0] * 60 + sParts[1];
+  const endMin = eParts[0] * 60 + eParts[1];
+  return Math.max(0, (endMin - startMin) / 60);
+}
+
+const selectedTeacher = computed(() => {
+  return teachers.value.find(t => t.id === newSchedule.value.teacher_id) || null;
+});
+
+const currentAssignedHours = computed(() => {
+  if (!newSchedule.value.teacher_id) return 0;
+  return schedules.value
+    .filter(s => s.teacher_id === newSchedule.value.teacher_id)
+    .reduce((sum, s) => sum + calculateScheduleDurationHours(s.start_time, s.end_time), 0);
+});
+
+const maxWeeklyHours = computed(() => {
+  if (!selectedTeacher.value) return 25;
+  return selectedTeacher.value.max_hours || selectedTeacher.value.horas_maximas || 25;
+});
+
+const availableHours = computed(() => {
+  return Math.max(0, maxWeeklyHours.value - currentAssignedHours.value);
+});
+
+const pendingClassHours = computed(() => {
+  if (!newSchedule.value.start_time || !newSchedule.value.end_time) return 0;
+  return calculateScheduleDurationHours(newSchedule.value.start_time, newSchedule.value.end_time);
+});
+
+const totalHoursWithPending = computed(() => {
+  return currentAssignedHours.value + pendingClassHours.value;
+});
+
+const teacherLoadPercentage = computed(() => {
+  if (!maxWeeklyHours.value) return 0;
+  return Math.round((currentAssignedHours.value / maxWeeklyHours.value) * 100);
+});
+
+const totalLoadPercentageWithPending = computed(() => {
+  if (!maxWeeklyHours.value) return 0;
+  return Math.round((totalHoursWithPending.value / maxWeeklyHours.value) * 100);
+});
+
+const teacherMeterColor = computed(() => {
+  // Rojo: Si la clase en proceso de asignación superaría el 100% (o si ya supera el 100%)
+  if (totalHoursWithPending.value > maxWeeklyHours.value || currentAssignedHours.value > maxWeeklyHours.value) {
+    return 'error';
+  }
+  // Ámbar: Entre 80% y 100%
+  const relevantPercentage = Math.max(teacherLoadPercentage.value, totalLoadPercentageWithPending.value);
+  if (relevantPercentage >= 80 && relevantPercentage <= 100) {
+    return 'warning';
+  }
+  // Verde: Menor al 80% de su capacidad
+  return 'success';
+});
+
+const teacherMeterColorName = computed(() => {
+  if (teacherMeterColor.value === 'error') return 'rojo';
+  if (teacherMeterColor.value === 'warning') return 'ambar';
+  return 'verde';
+});
+
+const teacherMeterText = computed(() => {
+  const assigned = currentAssignedHours.value;
+  const max = maxWeeklyHours.value;
+  const available = availableHours.value;
+  return `Horas: ${assigned} / ${max} hrs semanales (${available} hrs disponibles)`;
 });
 const daysOfWeek = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
 
