@@ -49,7 +49,20 @@ async function createSchedule(req, res) {
     if (!classroom) return res.status(404).json({ error: 'Aula no encontrada en esta institución' });
 
     // Validación de coherencia entre tipo de sesión y tipo de aula física
-    const session = session_type && String(session_type).trim() ? String(session_type).trim() : 'Teoría';
+    let session = session_type && String(session_type).trim() ? String(session_type).trim() : 'Clase Teórica';
+    if (session === 'Teoría') {
+      session = 'Clase Teórica';
+    }
+
+    const allowedSessionTypes = ['Clase Teórica', 'Laboratorio', 'Taller'];
+    if (!allowedSessionTypes.includes(session)) {
+      return res.status(400).json({
+        error: `Tipo de sesión no válido. Valores permitidos: ${allowedSessionTypes.join(', ')}`,
+        session_type: session,
+        allowed_session_types: allowedSessionTypes
+      });
+    }
+
     if (/^laboratorio$/i.test(session)) {
       const isLabClassroom = /laboratorio/i.test(classroom.type || '') || /lab/i.test(classroom.type || '');
       if (!isLabClassroom) {

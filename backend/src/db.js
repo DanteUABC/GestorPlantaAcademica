@@ -3,6 +3,7 @@ const { Pool } = require('pg');
 const bcrypt = require('bcryptjs');
 const { migrateExistingUserIdentifiers } = require('./utils/identifierHelper');
 const { migrateClassroomsType } = require('./utils/classroomMigration');
+const { migrateSchedulesGroupAndSession } = require('./utils/schedulesMigration');
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL || 'postgresql://postgres:postgres@localhost:5432/gestor_planta'
@@ -119,7 +120,7 @@ async function initDatabase() {
       end_time VARCHAR(5) NOT NULL,
       max_students INTEGER NOT NULL DEFAULT 30,
       group_code VARCHAR(50) NOT NULL DEFAULT 'G1',
-      session_type VARCHAR(50) NOT NULL DEFAULT 'Teoría',
+      session_type VARCHAR(50) NOT NULL DEFAULT 'Clase Teórica',
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE,
       FOREIGN KEY (subject_id) REFERENCES subjects(id) ON DELETE CASCADE,
@@ -258,20 +259,9 @@ async function initDatabase() {
     console.warn('Nota en migración de classrooms:', classroomsMigErr.message);
   }
 
-  // Migración para schedules: group_code y session_type
+  // Migración DDL para schedules: group_code, session_type e índice compuesto
   try {
-    await query.exec(`
-      ALTER TABLE schedules ADD COLUMN IF NOT EXISTS group_code VARCHAR(50) DEFAULT 'G1';
-      UPDATE schedules SET group_code = 'G1' WHERE group_code IS NULL;
-      ALTER TABLE schedules ALTER COLUMN group_code SET NOT NULL;
-      ALTER TABLE schedules ALTER COLUMN group_code SET DEFAULT 'G1';
-      CREATE INDEX IF NOT EXISTS idx_schedules_tenant_group ON schedules (tenant_id, group_code);
-
-      ALTER TABLE schedules ADD COLUMN IF NOT EXISTS session_type VARCHAR(50) DEFAULT 'Teoría';
-      UPDATE schedules SET session_type = 'Teoría' WHERE session_type IS NULL;
-      ALTER TABLE schedules ALTER COLUMN session_type SET NOT NULL;
-      ALTER TABLE schedules ALTER COLUMN session_type SET DEFAULT 'Teoría';
-    `);
+    await migrateSchedulesGroupAndSession(pool);
   } catch (schedMigErr) {
     console.warn('Nota en migración de schedules group_code / session_type:', schedMigErr.message);
   }

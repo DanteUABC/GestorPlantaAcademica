@@ -182,7 +182,7 @@
                         Grupo {{ item.group_code || 'G1' }}
                       </v-chip>
                       <v-chip size="x-small" :color="item.session_type === 'Laboratorio' ? 'deep-purple' : 'info'" variant="outlined">
-                        {{ item.session_type || 'Teoría' }}
+                        {{ item.session_type || 'Clase Teórica' }}
                       </v-chip>
                     </div>
                     <div class="text-caption text-grey-darken-2">
@@ -230,7 +230,7 @@
                   <div class="text-caption text-grey">
                     {{ sch.subject_code }} &bull; {{ sch.subject_credits }} créditos &bull;
                     <span class="font-weight-medium">Grupo {{ sch.group_code || 'G1' }}</span> &bull;
-                    <span>{{ sch.session_type || 'Teoría' }}</span>
+                    <span>{{ sch.session_type || 'Clase Teórica' }}</span>
                   </div>
                 </td>
                 <td>
@@ -435,7 +435,7 @@
               <v-col cols="12" sm="6">
                 <v-select
                   v-model="newSchedule.session_type"
-                  :items="['Teoría', 'Laboratorio', 'Taller']"
+                  :items="['Clase Teórica', 'Laboratorio', 'Taller']"
                   label="Tipo de Sesión *"
                   variant="outlined"
                   density="comfortable"
@@ -740,7 +740,7 @@ const newSchedule = ref({
   end_time: '10:00',
   max_students: 30,
   group_code: 'G1',
-  session_type: 'Teoría'
+  session_type: 'Clase Teórica'
 });
 
 const snackbar = ref({
@@ -812,7 +812,7 @@ function openCreateDialog() {
     end_time: '10:00',
     max_students: classrooms.value.length > 0 ? classrooms.value[0].capacity : 30,
     group_code: 'G1',
-    session_type: 'Teoría'
+    session_type: 'Clase Teórica'
   };
   createDialog.value = true;
 }

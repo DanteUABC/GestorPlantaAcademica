@@ -169,7 +169,7 @@ describe('Integración: Validación de coherencia entre tipo de sesión y tipo d
       await pool.query('DELETE FROM schedules WHERE id = $1', [res.body.schedule.id]);
     });
 
-    it('Permite guardar con HTTP 201 si session_type = "Teoría" en cualquier aula (ej. Aula Teórica)', async () => {
+    it('Permite guardar con HTTP 201 si session_type = "Clase Teórica" en cualquier aula (ej. Aula Teórica)', async () => {
       const res = await request(app)
         .post('/api/schedules')
         .set('Authorization', `Bearer ${coordToken}`)
@@ -181,12 +181,12 @@ describe('Integración: Validación de coherencia entre tipo de sesión y tipo d
           start_time: '18:00',
           end_time: '20:00',
           group_code: '303',
-          session_type: 'Teoría',
+          session_type: 'Clase Teórica',
           max_students: 30
         });
 
       expect(res.status).toBe(201);
-      expect(res.body.schedule.session_type).toBe('Teoría');
+      expect(res.body.schedule.session_type).toBe('Clase Teórica');
 
       // Limpieza
       await pool.query('DELETE FROM schedules WHERE id = $1', [res.body.schedule.id]);
@@ -194,7 +194,7 @@ describe('Integración: Validación de coherencia entre tipo de sesión y tipo d
   });
 
   describe('Criterio 3: Omisión de group_code asigna por defecto "G1"', () => {
-    it('Asigna por defecto group_code = "G1" cuando no se envía en la petición', async () => {
+    it('Asigna por defecto group_code = "G1" y session_type = "Clase Teórica" cuando no se envía en la petición', async () => {
       const res = await request(app)
         .post('/api/schedules')
         .set('Authorization', `Bearer ${coordToken}`)
@@ -206,16 +206,17 @@ describe('Integración: Validación de coherencia entre tipo de sesión y tipo d
           start_time: '08:00',
           end_time: '10:00',
           max_students: 30
-          // group_code omitido intencionalmente
+          // group_code y session_type omitidos intencionalmente
         });
 
       expect(res.status).toBe(201);
       expect(res.body.schedule.group_code).toBe('G1');
+      expect(res.body.schedule.session_type).toBe('Clase Teórica');
 
       // Verificar en base de datos
       const dbCheck = await pool.query('SELECT group_code, session_type FROM schedules WHERE id = $1', [res.body.schedule.id]);
       expect(dbCheck.rows[0].group_code).toBe('G1');
-      expect(dbCheck.rows[0].session_type).toBe('Teoría');
+      expect(dbCheck.rows[0].session_type).toBe('Clase Teórica');
 
       // Limpieza
       await pool.query('DELETE FROM schedules WHERE id = $1', [res.body.schedule.id]);
