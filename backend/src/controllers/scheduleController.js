@@ -21,7 +21,8 @@ async function createSchedule(req, res) {
       start_time,
       end_time,
       max_students,
-      group_code
+      group_code,
+      session_type
     } = req.body;
 
     if (!subject_id || !teacher_id || !classroom_id || !day_of_week || !start_time || !end_time) {
@@ -44,8 +45,21 @@ async function createSchedule(req, res) {
     );
     if (!teacher) return res.status(404).json({ error: 'Docente no encontrado o no tiene rol de Profesor' });
 
-    const classroom = await query.get('SELECT id, name, capacity FROM classrooms WHERE id = ? AND tenant_id = ?', [classroom_id, req.tenant_id]);
+    const classroom = await query.get('SELECT id, name, capacity, type FROM classrooms WHERE id = ? AND tenant_id = ?', [classroom_id, req.tenant_id]);
     if (!classroom) return res.status(404).json({ error: 'Aula no encontrada en esta institución' });
+
+    // Validación de coherencia entre tipo de sesión y tipo de aula física
+    const session = session_type && String(session_type).trim() ? String(session_type).trim() : 'Teoría';
+    if (/^laboratorio$/i.test(session)) {
+      const isLabClassroom = /laboratorio/i.test(classroom.type || '') || /lab/i.test(classroom.type || '');
+      if (!isLabClassroom) {
+        return res.status(400).json({
+          error: `Incoherencia de espacio: La sesión de tipo 'Laboratorio' requiere un aula física de tipo 'Laboratorio'. El aula seleccionada "${classroom.name}" es de tipo "${classroom.type}".`,
+          session_type: session,
+          classroom_type: classroom.type
+        });
+      }
+    }
 
     // Validación preventiva de aforo contra capacidad física del aula (Criterios 1 y 2)
     let assignedStudents = classroom.capacity;
@@ -134,9 +148,9 @@ async function createSchedule(req, res) {
     const capacity = assignedStudents;
 
     await query.run(
-      `INSERT INTO schedules (id, tenant_id, subject_id, teacher_id, classroom_id, day_of_week, start_time, end_time, max_students, group_code)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [scheduleId, req.tenant_id, subject_id, teacher_id, classroom_id, day_of_week, start_time, end_time, capacity, group]
+      `INSERT INTO schedules (id, tenant_id, subject_id, teacher_id, classroom_id, day_of_week, start_time, end_time, max_students, group_code, session_type)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [scheduleId, req.tenant_id, subject_id, teacher_id, classroom_id, day_of_week, start_time, end_time, capacity, group, session]
     );
 
     res.status(201).json({
@@ -149,11 +163,13 @@ async function createSchedule(req, res) {
         teacher_name: teacher.name,
         classroom_id,
         classroom_name: classroom.name,
+        classroom_type: classroom.type,
         day_of_week,
         start_time,
         end_time,
         max_students: capacity,
-        group_code: group
+        group_code: group,
+        session_type: session
       }
     });
   } catch (err) {
@@ -173,6 +189,7 @@ async function getCoordinatorSchedules(req, res) {
          s.end_time,
          s.max_students,
          s.group_code,
+         s.session_type,
          s.created_at,
          sub.id as subject_id,
          sub.code as subject_code,
@@ -183,7 +200,8 @@ async function getCoordinatorSchedules(req, res) {
          t.email as teacher_email,
          cr.id as classroom_id,
          cr.name as classroom_name,
-         cr.building as classroom_building
+         cr.building as classroom_building,
+         cr.type as classroom_type
        FROM schedules s
        JOIN subjects sub ON s.subject_id = sub.id
        JOIN users t ON s.teacher_id = t.id
@@ -239,11 +257,13 @@ async function getTeacherSchedules(req, res) {
          s.end_time,
          s.max_students,
          s.group_code,
+         s.session_type,
          sub.code as subject_code,
          sub.name as subject_name,
          sub.credits as subject_credits,
          cr.name as classroom_name,
-         cr.building as classroom_building
+         cr.building as classroom_building,
+         cr.type as classroom_type
        FROM schedules s
        JOIN subjects sub ON s.subject_id = sub.id
        JOIN classrooms cr ON s.classroom_id = cr.id

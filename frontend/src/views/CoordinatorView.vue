@@ -177,6 +177,14 @@
                     <div class="text-subtitle-2 font-weight-bold text-slate-800 mt-1">
                       {{ item.subject_name }}
                     </div>
+                    <div class="d-flex align-center gap-1 my-1 flex-wrap">
+                      <v-chip size="x-small" color="primary" variant="tonal" class="mr-1">
+                        Grupo {{ item.group_code || 'G1' }}
+                      </v-chip>
+                      <v-chip size="x-small" :color="item.session_type === 'Laboratorio' ? 'deep-purple' : 'info'" variant="outlined">
+                        {{ item.session_type || 'Teoría' }}
+                      </v-chip>
+                    </div>
                     <div class="text-caption text-grey-darken-2">
                       <v-icon icon="mdi-account-tie" size="x-small"></v-icon>
                       {{ item.teacher_name }}
@@ -219,7 +227,11 @@
                 </td>
                 <td>
                   <div class="font-weight-bold">{{ sch.subject_name }}</div>
-                  <div class="text-caption text-grey">{{ sch.subject_code }} &bull; {{ sch.subject_credits }} créditos</div>
+                  <div class="text-caption text-grey">
+                    {{ sch.subject_code }} &bull; {{ sch.subject_credits }} créditos &bull;
+                    <span class="font-weight-medium">Grupo {{ sch.group_code || 'G1' }}</span> &bull;
+                    <span>{{ sch.session_type || 'Teoría' }}</span>
+                  </div>
                 </td>
                 <td>
                   <div class="d-flex align-center">
@@ -418,6 +430,49 @@
               </template>
             </v-select>
 
+            <!-- Tipo de Sesión y Código de Grupo -->
+            <v-row class="mb-1">
+              <v-col cols="12" sm="6">
+                <v-select
+                  v-model="newSchedule.session_type"
+                  :items="['Teoría', 'Laboratorio', 'Taller']"
+                  label="Tipo de Sesión *"
+                  variant="outlined"
+                  density="comfortable"
+                  prepend-inner-icon="mdi-format-list-bulleted-type"
+                  :rules="[v => !!v || 'Seleccione el tipo de sesión']"
+                  :error="isLabMismatch"
+                  :error-messages="isLabMismatch ? ['Requiere aula de tipo Laboratorio'] : []"
+                ></v-select>
+              </v-col>
+              <v-col cols="12" sm="6">
+                <v-text-field
+                  v-model="newSchedule.group_code"
+                  label="Código de Grupo"
+                  placeholder="ej. 501, G1"
+                  variant="outlined"
+                  density="comfortable"
+                  prepend-inner-icon="mdi-account-group"
+                  hint="Por defecto: G1"
+                  persistent-hint
+                ></v-text-field>
+              </v-col>
+            </v-row>
+
+            <!-- Alerta visual de incoherencia entre tipo de sesión y tipo de aula -->
+            <v-alert
+              v-if="isLabMismatch"
+              type="warning"
+              density="compact"
+              variant="tonal"
+              color="error"
+              class="mb-3 text-caption font-weight-medium"
+              icon="mdi-flask-empty-off"
+            >
+              <strong>Incoherencia de Espacio:</strong>
+              {{ labMismatchWarningMessage }}
+            </v-alert>
+
             <!-- Día de la semana -->
             <v-select
               v-model="newSchedule.day_of_week"
@@ -496,7 +551,7 @@
                 color="primary"
                 class="text-none font-weight-bold"
                 :loading="submitting"
-                :disabled="isCapacityExceeded || submitting"
+                :disabled="isCapacityExceeded || isLabMismatch || submitting"
               >
                 Guardar Horario
               </v-btn>
@@ -554,6 +609,20 @@ const isCapacityExceeded = computed(() => {
 const capacityWarningMessage = computed(() => {
   if (!selectedClassroom.value || !isCapacityExceeded.value) return '';
   return `¡Sobrecupo detectado! El cupo ingresado (${newSchedule.value.max_students} alumnos) excede la capacidad máxima del aula "${selectedClassroom.value.name}" (${selectedClassroom.value.capacity} alumnos).`;
+});
+
+const isLabMismatch = computed(() => {
+  if (!selectedClassroom.value || !newSchedule.value.session_type) return false;
+  const isLabSession = /^laboratorio$/i.test(newSchedule.value.session_type);
+  if (!isLabSession) return false;
+  const crType = selectedClassroom.value.type || '';
+  const isLabCr = /laboratorio/i.test(crType) || /lab/i.test(crType);
+  return !isLabCr;
+});
+
+const labMismatchWarningMessage = computed(() => {
+  if (!selectedClassroom.value || !isLabMismatch.value) return '';
+  return `Una sesión de tipo "Laboratorio" requiere un aula física de tipo "Laboratorio". El aula "${selectedClassroom.value.name}" es de tipo "${selectedClassroom.value.type || 'Aula Teórica'}".`;
 });
 
 // Medidor reactivo de carga horaria del docente
@@ -669,7 +738,9 @@ const newSchedule = ref({
   day_of_week: 'Lunes',
   start_time: '08:00',
   end_time: '10:00',
-  max_students: 30
+  max_students: 30,
+  group_code: 'G1',
+  session_type: 'Teoría'
 });
 
 const snackbar = ref({
@@ -739,7 +810,9 @@ function openCreateDialog() {
     day_of_week: 'Lunes',
     start_time: '08:00',
     end_time: '10:00',
-    max_students: classrooms.value.length > 0 ? classrooms.value[0].capacity : 30
+    max_students: classrooms.value.length > 0 ? classrooms.value[0].capacity : 30,
+    group_code: 'G1',
+    session_type: 'Teoría'
   };
   createDialog.value = true;
 }
@@ -747,6 +820,10 @@ function openCreateDialog() {
 async function submitSchedule() {
   if (isCapacityExceeded.value) {
     conflictError.value = capacityWarningMessage.value;
+    return;
+  }
+  if (isLabMismatch.value) {
+    conflictError.value = labMismatchWarningMessage.value;
     return;
   }
   conflictError.value = '';
