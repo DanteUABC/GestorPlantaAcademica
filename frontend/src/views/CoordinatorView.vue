@@ -354,8 +354,8 @@
             <!-- Aula Física -->
             <v-select
               v-model="newSchedule.classroom_id"
-              :items="classrooms"
-              item-title="name"
+              :items="classroomOptions"
+              item-title="displayName"
               item-value="id"
               label="Aula Física *"
               variant="outlined"
@@ -365,7 +365,18 @@
               :rules="[v => !!v || 'Seleccione un aula']"
             >
               <template #item="{ props, item }">
-                <v-list-item v-bind="props" :subtitle="`${item.raw.building || 'Edificio Principal'} | Capacidad: ${item.raw.capacity} alumnos`"></v-list-item>
+                <v-list-item
+                  v-bind="props"
+                  :title="formatClassroomOption(item.raw)"
+                  :subtitle="item.raw.building ? `Edificio: ${item.raw.building}` : undefined"
+                >
+                  <template #prepend>
+                    <v-icon icon="mdi-door" class="mr-2 text-secondary" size="small"></v-icon>
+                  </template>
+                </v-list-item>
+              </template>
+              <template #selection="{ item }">
+                <span>{{ formatClassroomOption(item.raw) }}</span>
               </template>
             </v-select>
 
@@ -415,10 +426,28 @@
               variant="outlined"
               density="comfortable"
               prepend-inner-icon="mdi-account-multiple"
-              class="mb-4"
-              min="5"
+              :class="isCapacityExceeded ? 'mb-1' : 'mb-4'"
+              min="1"
               max="100"
+              :error="isCapacityExceeded"
+              :error-messages="isCapacityExceeded ? [capacityWarningMessage] : []"
+              :messages="!isCapacityExceeded && selectedClassroom ? [`Capacidad máxima del aula: ${selectedClassroom.capacity} alumnos`] : []"
             ></v-text-field>
+
+            <!-- Alerta visual de sobrecupo en tiempo real (ámbar / rojo) -->
+            <v-alert
+              v-if="isCapacityExceeded"
+              type="warning"
+              density="compact"
+              variant="tonal"
+              color="warning"
+              class="mb-4 text-caption font-weight-medium"
+              icon="mdi-alert-circle"
+            >
+              <strong>Advertencia de Sobrecupo:</strong>
+              El aforo máximo del espacio físico seleccionado ({{ selectedClassroom?.name }}) es de <strong>{{ selectedClassroom?.capacity }}</strong> alumnos.
+              Reduce el cupo para poder guardar el horario.
+            </v-alert>
 
             <div class="d-flex justify-end gap-2">
               <v-btn variant="text" class="text-none mr-2" @click="createDialog = false">
@@ -429,6 +458,7 @@
                 color="primary"
                 class="text-none font-weight-bold"
                 :loading="submitting"
+                :disabled="isCapacityExceeded || submitting"
               >
                 Guardar Horario
               </v-btn>
@@ -458,6 +488,35 @@ const schedules = ref([]);
 const subjects = ref([]);
 const teachers = ref([]);
 const classrooms = ref([]);
+
+const formatClassroomOption = (cr) => {
+  if (!cr) return '';
+  const typeText = cr.type ? cr.type : 'Aula Teórica';
+  return `${cr.name} • ${typeText} • Capacidad: ${cr.capacity}`;
+};
+
+const classroomOptions = computed(() => {
+  return classrooms.value.map(cr => ({
+    ...cr,
+    displayName: formatClassroomOption(cr)
+  }));
+});
+
+const selectedClassroom = computed(() => {
+  return classrooms.value.find(c => c.id === newSchedule.value.classroom_id) || null;
+});
+
+const isCapacityExceeded = computed(() => {
+  if (!selectedClassroom.value) return false;
+  const requested = Number(newSchedule.value.max_students);
+  if (!requested || isNaN(requested)) return false;
+  return requested > selectedClassroom.value.capacity;
+});
+
+const capacityWarningMessage = computed(() => {
+  if (!selectedClassroom.value || !isCapacityExceeded.value) return '';
+  return `¡Sobrecupo detectado! El cupo ingresado (${newSchedule.value.max_students} alumnos) excede la capacidad máxima del aula "${selectedClassroom.value.name}" (${selectedClassroom.value.capacity} alumnos).`;
+});
 const daysOfWeek = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
 
 const selectedTeacherFilter = ref('');
@@ -571,6 +630,10 @@ function openCreateDialog() {
 }
 
 async function submitSchedule() {
+  if (isCapacityExceeded.value) {
+    conflictError.value = capacityWarningMessage.value;
+    return;
+  }
   conflictError.value = '';
   submitting.value = true;
   try {
