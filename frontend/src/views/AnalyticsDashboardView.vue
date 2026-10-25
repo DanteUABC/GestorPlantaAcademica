@@ -264,7 +264,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed, watch, onMounted } from 'vue';
 import { useAuthStore } from '../stores/authStore';
 import api from '../api/client';
 
@@ -326,9 +326,17 @@ const loadAnalytics = async () => {
   errorMessage.value = '';
 
   try {
+    const isFiltered = selectedBuilding.value && selectedBuilding.value !== 'Todos los Edificios';
+    const occupancyUrl = isFiltered 
+      ? `/analytics/classroom-occupancy?edificio=${encodeURIComponent(selectedBuilding.value)}`
+      : '/analytics/classroom-occupancy';
+    const teacherUrl = isFiltered 
+      ? `/analytics/teacher-utilization?edificio=${encodeURIComponent(selectedBuilding.value)}`
+      : '/analytics/teacher-utilization';
+
     const [occupancyRes, teacherRes, classroomsRes] = await Promise.all([
-      api.get('/analytics/classroom-occupancy'),
-      api.get('/analytics/teacher-utilization'),
+      api.get(occupancyUrl),
+      api.get(teacherUrl),
       api.get('/classrooms').catch(() => ({ data: [] }))
     ]);
 
@@ -351,6 +359,11 @@ const loadAnalytics = async () => {
     loading.value = false;
   }
 };
+
+// Observador reactivo sobre el selector de Edificio/Instalación
+watch(selectedBuilding, () => {
+  loadAnalytics();
+});
 
 onMounted(() => {
   loadAnalytics();

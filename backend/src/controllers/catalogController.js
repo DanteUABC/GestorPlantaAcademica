@@ -225,3 +225,7 @@ module.exports = {
   deleteClassroom,
   getTeachers
 };
+
+// Exportar getTenants para compatibilidad con catalogController
+const authController = require('./authController');
+exports.getTenants = authController.getTenants;

@@ -19,6 +19,8 @@ function extractTenantId(req) {
 // Endpoint 1: Matriz de Ocupación Dinámica
 exports.getClassroomOccupancy = async (req, res) => {
     const tenant_id = extractTenantId(req);
+    const rawEdificio = req.query.edificio?.trim();
+    const edificio = (rawEdificio && rawEdificio !== 'Todos los Edificios') ? rawEdificio : null;
 
     if (!tenant_id) {
         return res.status(400).json({ error: 'Tenant no identificado en la sesión' });
@@ -27,10 +29,11 @@ exports.getClassroomOccupancy = async (req, res) => {
     try {
         const query = `
             WITH aulas_tenant AS (
-                -- Integración con el catálogo de aulas físicas del tenant
+                -- Integración con el catálogo de aulas físicas del tenant (con filtro dinámico de edificio)
                 SELECT NULLIF(COUNT(id), 0)::int AS total 
                 FROM classrooms 
                 WHERE tenant_id = $1
+                  AND ($2::text IS NULL OR building = $2)
             ),
             bloques_horas AS (
                 SELECT generate_series(7, 20) AS bloque
@@ -40,7 +43,7 @@ exports.getClassroomOccupancy = async (req, res) => {
             ),
             clases_tenant AS (
                 -- Extraer clases desde la tabla oficial 'schedules' (Armado de Horarios)
-                -- con fallback a 'horarios' para retrocompatibilidad
+                -- con filtro dinámico por edificio de aula y fallback a 'horarios'
                 SELECT 
                     s.id::text AS id,
                     s.tenant_id,
@@ -49,7 +52,9 @@ exports.getClassroomOccupancy = async (req, res) => {
                     s.start_time AS hora_inicio,
                     s.end_time AS hora_fin
                 FROM schedules s
+                LEFT JOIN classrooms cr ON s.classroom_id = cr.id
                 WHERE s.tenant_id = $1
+                  AND ($2::text IS NULL OR cr.building = $2)
                 UNION ALL
                 SELECT 
                     h.id::text AS id,
@@ -60,9 +65,10 @@ exports.getClassroomOccupancy = async (req, res) => {
                     h.hora_fin
                 FROM horarios h
                 WHERE h.tenant_id = $1
-                AND NOT EXISTS (
-                    SELECT 1 FROM schedules s2 WHERE s2.tenant_id = $1
-                )
+                  AND ($2::text IS NULL)
+                  AND NOT EXISTS (
+                      SELECT 1 FROM schedules s2 WHERE s2.tenant_id = $1
+                  )
             )
             SELECT 
                 d.dia,
@@ -84,7 +90,7 @@ exports.getClassroomOccupancy = async (req, res) => {
             ORDER BY array_position(ARRAY['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'], d.dia), b.bloque;
         `;
         
-        const result = await pool.query(query, [tenant_id]);
+        const result = await pool.query(query, [tenant_id, edificio]);
         return res.status(200).json(result.rows);
     } catch (error) {
         console.error('Error al generar matriz de ocupación:', error);
@@ -95,6 +101,8 @@ exports.getClassroomOccupancy = async (req, res) => {
 // Endpoint 2: Índice de Utilización Docente
 exports.getTeacherUtilization = async (req, res) => {
     const tenant_id = extractTenantId(req);
+    const rawEdificio = req.query.edificio?.trim();
+    const edificio = (rawEdificio && rawEdificio !== 'Todos los Edificios') ? rawEdificio : null;
     const MIN_HOURS = 10;
     const MAX_HOURS = 40;
 
@@ -106,7 +114,7 @@ exports.getTeacherUtilization = async (req, res) => {
         const query = `
             WITH clases_docentes AS (
                 -- Extraer asignaciones de docentes desde la tabla oficial 'schedules' (Armado de Horarios)
-                -- con fallback a 'horarios' para retrocompatibilidad
+                -- con filtro dinámico por edificio de aula y fallback a 'horarios'
                 SELECT 
                     s.tenant_id,
                     s.teacher_id AS profesor_id,
@@ -115,7 +123,9 @@ exports.getTeacherUtilization = async (req, res) => {
                     s.end_time AS hora_fin
                 FROM schedules s
                 LEFT JOIN users u ON s.teacher_id = u.id
+                LEFT JOIN classrooms cr ON s.classroom_id = cr.id
                 WHERE s.tenant_id = $1
+                  AND ($4::text IS NULL OR cr.building = $4)
                 UNION ALL
                 SELECT 
                     h.tenant_id,
@@ -125,9 +135,10 @@ exports.getTeacherUtilization = async (req, res) => {
                     h.hora_fin
                 FROM horarios h
                 WHERE h.tenant_id = $1
-                AND NOT EXISTS (
-                    SELECT 1 FROM schedules s2 WHERE s2.tenant_id = $1
-                )
+                  AND ($4::text IS NULL)
+                  AND NOT EXISTS (
+                      SELECT 1 FROM schedules s2 WHERE s2.tenant_id = $1
+                  )
             ),
             horas_docentes AS (
                 SELECT 
@@ -145,7 +156,7 @@ exports.getTeacherUtilization = async (req, res) => {
             FROM horas_docentes;
         `;
 
-        const result = await pool.query(query, [tenant_id, MIN_HOURS, MAX_HOURS]);
+        const result = await pool.query(query, [tenant_id, MIN_HOURS, MAX_HOURS, edificio]);
         return res.status(200).json(result.rows[0]);
     } catch (error) {
         console.error('Error al generar analítica docente:', error);

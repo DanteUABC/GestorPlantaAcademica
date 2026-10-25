@@ -193,11 +193,47 @@ exports.logout = (req, res) => {
   return res.json({ message: 'Sesión cerrada exitosamente' });
 };
 
-// List available tenants
+// List available tenants (sin duplicados y filtrando registros activos)
 exports.getTenants = async (req, res) => {
   try {
-    const tenants = await query.all('SELECT id, name, slug FROM tenants ORDER BY name ASC');
-    res.json(tenants);
+    let tenants = [];
+    try {
+      tenants = await query.all(
+        "SELECT DISTINCT id, COALESCE(nombre, name) AS nombre, COALESCE(name, nombre) AS name, slug FROM tenants WHERE status = 'active' ORDER BY name ASC"
+      );
+    } catch (statusErr) {
+      tenants = await query.all(
+        "SELECT DISTINCT id, COALESCE(nombre, name) AS nombre, COALESCE(name, nombre) AS name, slug FROM tenants ORDER BY name ASC"
+      );
+    }
+
+    // Filtro de unicidad por nombre para evitar instituciones repetidas o alias duplicados (ej. '1' vs 'tenant-itc')
+    const seenNames = new Set();
+    const uniqueTenants = [];
+
+    // Priorizar IDs semánticos ('tenant-itc') sobre IDs numéricos antiguos ('1')
+    const sorted = [...tenants].sort((a, b) => {
+      const aIsNum = /^\d+$/.test(a.id);
+      const bIsNum = /^\d+$/.test(b.id);
+      if (aIsNum && !bIsNum) return 1;
+      if (!aIsNum && bIsNum) return -1;
+      return (a.name || '').localeCompare(b.name || '');
+    });
+
+    for (const t of sorted) {
+      const normalizedName = (t.name || t.nombre || '').trim().toLowerCase();
+      if (!seenNames.has(normalizedName)) {
+        seenNames.add(normalizedName);
+        uniqueTenants.push({
+          id: t.id,
+          name: t.name || t.nombre,
+          nombre: t.nombre || t.name,
+          slug: t.slug
+        });
+      }
+    }
+
+    res.json(uniqueTenants);
   } catch (err) {
     res.status(500).json({ error: 'Error al obtener instituciones', details: err.message });
   }

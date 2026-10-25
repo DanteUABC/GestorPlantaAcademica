@@ -157,6 +157,10 @@ async function initDatabase() {
   // Migraciones incrementales sobre PostgreSQL para soporte de usuarios externos y vistas
   try {
     await query.exec(`
+      ALTER TABLE tenants ADD COLUMN IF NOT EXISTS status VARCHAR(20) DEFAULT 'active';
+      ALTER TABLE tenants ADD COLUMN IF NOT EXISTS nombre VARCHAR(255);
+      UPDATE tenants SET status = 'active' WHERE status IS NULL;
+      UPDATE tenants SET nombre = name WHERE nombre IS NULL;
       ALTER TABLE roles ADD COLUMN IF NOT EXISTS nombre VARCHAR(100);
       UPDATE roles SET nombre = name WHERE nombre IS NULL;
       ALTER TABLE users ALTER COLUMN password_hash DROP NOT NULL;

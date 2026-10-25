@@ -106,8 +106,8 @@ describe('AnalyticsDashboardView.vue - Tablero de Control Directivo', () => {
     expect(kpiEl.text()).toContain('62.5%');
   });
 
-  it('KPI 2: debe contar correctamente las Aulas con Ocupación Crítica (> 90%)', async () => {
-    // Bloques con porcentaje_ocupacion > 90: Block 1 (100%) y Block 4 (100%) = 2
+  it('KPI 2: debe contar los bloques con ocupación crítica (> 90%)', async () => {
+    // [100, 50, 0, 100] -> Hay 2 bloques con porcentaje > 90%
     const wrapper = mount(AnalyticsDashboardView, {
       global: {
         plugins: [pinia],
@@ -122,8 +122,7 @@ describe('AnalyticsDashboardView.vue - Tablero de Control Directivo', () => {
     expect(kpiEl.text()).toContain('2');
   });
 
-  it('KPI 3: debe reflejar el valor de Profesores Subutilizados devuelto por la API', async () => {
-    // Valor directo: 3
+  it('KPI 3: debe reflejar directamente el valor de profesores subutilizados', async () => {
     const wrapper = mount(AnalyticsDashboardView, {
       global: {
         plugins: [pinia],
@@ -138,9 +137,9 @@ describe('AnalyticsDashboardView.vue - Tablero de Control Directivo', () => {
     expect(kpiEl.text()).toContain('3');
   });
 
-  it('KPI 4: debe calcular correctamente las Horas Libres Totales (Capacidad Total - Ocupadas)', async () => {
-    // Capacidad total = 2 + 2 + 2 + 2 = 8
-    // Total ocupadas = 2 + 1 + 0 + 2 = 5
+  it('KPI 4: debe calcular las Horas Libres Totales (Capacidad Total - Aulas Ocupadas)', async () => {
+    // Total Capacidad = 2 + 2 + 2 + 2 = 8
+    // Total Ocupadas = 2 + 1 + 0 + 2 = 5
     // Horas Libres = 8 - 5 = 3
     const wrapper = mount(AnalyticsDashboardView, {
       global: {
@@ -173,6 +172,27 @@ describe('AnalyticsDashboardView.vue - Tablero de Control Directivo', () => {
     await flushPromises();
 
     expect(api.get).toHaveBeenCalledTimes(6);
+  });
+
+  it('debe observar el cambio en selectedBuilding y disparar la recarga con el parámetro ?edificio=', async () => {
+    const wrapper = mount(AnalyticsDashboardView, {
+      global: {
+        plugins: [pinia],
+        stubs
+      }
+    });
+
+    await flushPromises();
+    expect(api.get).toHaveBeenCalledTimes(3);
+
+    // Cambiar edificio a 'Edificio Tecnologías'
+    wrapper.vm.selectedBuilding = 'Edificio Tecnologías';
+    await flushPromises();
+
+    // Debe haberse disparado una nueva recarga (3 llamadas adicionales)
+    expect(api.get).toHaveBeenCalledTimes(6);
+    expect(api.get).toHaveBeenCalledWith('/analytics/classroom-occupancy?edificio=Edificio%20Tecnolog%C3%ADas');
+    expect(api.get).toHaveBeenCalledWith('/analytics/teacher-utilization?edificio=Edificio%20Tecnolog%C3%ADas');
   });
 
   it('debe manejar adecuadamente respuestas vacías sin errores matemáticos', async () => {

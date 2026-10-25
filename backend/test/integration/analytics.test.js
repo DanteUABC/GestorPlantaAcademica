@@ -21,6 +21,14 @@ describe('Motor de Analítica y SLA', () => {
             VALUES ($1, 'Tenant Analitica', 'tenant-analitica')
             ON CONFLICT (id) DO NOTHING;
         `, [testTenantId]);
+
+        // Calentamiento previo de la ruta Express / JWT para evitar overhead de arranque inicial
+        const warmupToken = jwt.sign(
+            { id: 'coord-warmup', tenant_id: testTenantId, rol: 'role-coord', role: 'Coordinador' }, 
+            JWT_SECRET,
+            { expiresIn: '15m' }
+        );
+        await request(app).get('/api/analytics/classroom-occupancy').set('Authorization', `Bearer ${warmupToken}`);
     });
 
     beforeEach(async () => {
@@ -203,6 +211,79 @@ describe('Motor de Analítica y SLA', () => {
         expect(Number(sabado7.aulas_ocupadas)).toBe(1);
         expect(Number(sabado7.aulas_totales)).toBe(2);
         expect(Number(sabado7.porcentaje_ocupacion)).toBe(50);
+    });
+
+    it('Criterio 5: Debe respetar el filtro dinámico por edificio (?edificio=...) en aulas_totales y aulas_ocupadas', async () => {
+        // En testTenantId tenemos cr-fix-1 y cr-fix-2 en 'Edificio Central'.
+        // Añadir una tercera aula en un edificio distinto ('Edificio de Ciencias'):
+        await pool.query(`
+            INSERT INTO classrooms (id, tenant_id, name, building, capacity, type)
+            VALUES ('cr-fix-ciencias', $1, 'Aula Ciencias 1', 'Edificio de Ciencias', 25, 'Laboratorio')
+            ON CONFLICT (id) DO NOTHING;
+        `, [testTenantId]);
+
+        // 1. Sin filtro de edificio: aulas_totales debe ser 3
+        const resSinFiltro = await request(app)
+            .get('/api/analytics/classroom-occupancy')
+            .set('Authorization', `Bearer ${token}`);
+        expect(resSinFiltro.status).toBe(200);
+        expect(Number(resSinFiltro.body[0].aulas_totales)).toBe(3);
+
+        // 2. Con filtro edificio = 'Edificio Central': aulas_totales debe ser 2
+        const resCentral = await request(app)
+            .get('/api/analytics/classroom-occupancy?edificio=Edificio%20Central')
+            .set('Authorization', `Bearer ${token}`);
+        expect(resCentral.status).toBe(200);
+        expect(Number(resCentral.body[0].aulas_totales)).toBe(2);
+
+        // Bloque Miércoles 8: clase de cr-fix-1 está en 'Edificio Central', debe figurar 1 ocupada de 2 (50%)
+        const miercoles8Central = resCentral.body.find(b => b.dia === 'Miércoles' && b.hora_inicio === 8);
+        expect(Number(miercoles8Central.aulas_ocupadas)).toBe(1);
+        expect(Number(miercoles8Central.aulas_totales)).toBe(2);
+        expect(Number(miercoles8Central.porcentaje_ocupacion)).toBe(50);
+
+        // 3. Con filtro edificio = 'Edificio de Ciencias': aulas_totales debe ser 1 y ocupadas 0 (0%)
+        const resCiencias = await request(app)
+            .get('/api/analytics/classroom-occupancy?edificio=Edificio%20de%20Ciencias')
+            .set('Authorization', `Bearer ${token}`);
+        expect(resCiencias.status).toBe(200);
+        expect(Number(resCiencias.body[0].aulas_totales)).toBe(1);
+        const miercoles8Ciencias = resCiencias.body.find(b => b.dia === 'Miércoles' && b.hora_inicio === 8);
+        expect(Number(miercoles8Ciencias.aulas_ocupadas)).toBe(0);
+        expect(Number(miercoles8Ciencias.porcentaje_ocupacion)).toBe(0);
+
+        // 4. Con filtro edificio en teacher-utilization: no hay clases en Edificio de Ciencias
+        const resDocentesCiencias = await request(app)
+            .get('/api/analytics/teacher-utilization?edificio=Edificio%20de%20Ciencias')
+            .set('Authorization', `Bearer ${token}`);
+        expect(resDocentesCiencias.status).toBe(200);
+        expect(Number(resDocentesCiencias.body.total_profesores)).toBe(0);
+    });
+
+    it('Criterio 6: GET /api/auth/tenants debe retornar instituciones únicas sin duplicados y filtrando registros activos', async () => {
+        await pool.query(`
+            INSERT INTO tenants (id, name, slug, status)
+            VALUES 
+            ('test-dup-1', 'Universidad Duplicada', 'dup-1', 'active'),
+            ('test-dup-2', 'Universidad Duplicada', 'dup-2', 'active'),
+            ('test-inact-1', 'Universidad Inactiva', 'inact-1', 'inactive')
+            ON CONFLICT (id) DO NOTHING;
+        `);
+
+        const res = await request(app).get('/api/auth/tenants');
+        expect(res.status).toBe(200);
+        expect(Array.isArray(res.body)).toBe(true);
+
+        // No debe aparecer la inactiva
+        const inactiva = res.body.find(t => t.id === 'test-inact-1' || t.name === 'Universidad Inactiva');
+        expect(inactiva).toBeUndefined();
+
+        // 'Universidad Duplicada' debe aparecer exactamente una vez
+        const duplicadas = res.body.filter(t => t.name === 'Universidad Duplicada');
+        expect(duplicadas.length).toBe(1);
+
+        // Limpieza de datos de prueba
+        await pool.query("DELETE FROM tenants WHERE id IN ('test-dup-1', 'test-dup-2', 'test-inact-1')");
     });
 
     it('Debe rechazar solicitudes no autenticadas con 401', async () => {
