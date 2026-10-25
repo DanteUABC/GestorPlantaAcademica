@@ -151,6 +151,7 @@ async function initDatabase() {
     -- Vistas de compatibilidad RBAC y tablas en español
     CREATE OR REPLACE VIEW usuarios AS SELECT * FROM users;
     CREATE OR REPLACE VIEW usuarios_roles AS SELECT id AS usuario_id, tenant_id, role_id AS rol_id FROM users;
+    CREATE OR REPLACE VIEW aulas AS SELECT * FROM classrooms;
   `);
 
   // Migraciones incrementales sobre PostgreSQL para soporte de usuarios externos y vistas
@@ -198,6 +199,7 @@ async function initDatabase() {
       CREATE OR REPLACE VIEW usuarios AS SELECT * FROM users;
       DROP VIEW IF EXISTS usuarios_roles CASCADE;
       CREATE OR REPLACE VIEW usuarios_roles AS SELECT id AS usuario_id, tenant_id, role_id AS rol_id FROM users;
+    CREATE OR REPLACE VIEW aulas AS SELECT * FROM classrooms;
       CREATE OR REPLACE RULE usuarios_roles_insert AS
         ON INSERT TO usuarios_roles
         DO INSTEAD

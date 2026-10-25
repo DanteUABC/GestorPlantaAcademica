@@ -11,6 +11,7 @@ const passport = require('./config/passport');
 const authController = require('./controllers/authController');
 const catalogController = require('./controllers/catalogController');
 const scheduleController = require('./controllers/scheduleController');
+const analyticsRoutes = require('./routes/analyticsRoutes');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -94,6 +95,9 @@ app.get('/api/schedules/export', authenticateJWT, scheduleController.exportSched
 
 // Módulo Docente: Consulta de Horario y Grupos
 app.get('/api/schedules/teacher', requireRole(['Profesor', 'Coordinador', 'Administrador']), scheduleController.getTeacherSchedules);
+
+// Motor de Analítica: Ocupación de Aulas y Subutilización Docente
+app.use('/api/analytics', analyticsRoutes);
 
 // Healthcheck
 app.get('/api/health', (req, res) => {
