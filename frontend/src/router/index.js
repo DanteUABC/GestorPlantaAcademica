@@ -5,6 +5,7 @@ import CoordinatorView from '../views/CoordinatorView.vue';
 import TeacherView from '../views/TeacherView.vue';
 import UnauthorizedView from '../views/UnauthorizedView.vue';
 import ExternalRegisterView from '../views/ExternalRegisterView.vue';
+import AnalyticsDashboardView from '../views/AnalyticsDashboardView.vue';
 
 const routes = [
   { path: '/login', name: 'Login', component: LoginView },
@@ -13,6 +14,12 @@ const routes = [
     path: '/coordinator', 
     name: 'Coordinator', 
     component: CoordinatorView,
+    meta: { requiresAuth: true, allowedRoles: ['Coordinador', 'Administrador', 'role-coord', 'role-admin'] }
+  },
+  { 
+    path: '/analytics', 
+    name: 'AnalyticsDashboard', 
+    component: AnalyticsDashboardView,
     meta: { requiresAuth: true, allowedRoles: ['Coordinador', 'Administrador', 'role-coord', 'role-admin'] }
   },
   { 

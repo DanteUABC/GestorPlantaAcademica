@@ -13,6 +13,16 @@
       </div>
       <div class="d-flex ga-2">
         <v-btn
+          color="info"
+          variant="tonal"
+          size="large"
+          prepend-icon="mdi-chart-box-outline"
+          class="text-none font-weight-bold"
+          to="/analytics"
+        >
+          Analítica Operativa
+        </v-btn>
+        <v-btn
           color="success"
           variant="tonal"
           size="large"
@@ -91,6 +101,7 @@
           <v-tab value="grid" prepend-icon="mdi-view-week">Parrilla Semanal de Horarios</v-tab>
           <v-tab value="list" prepend-icon="mdi-format-list-bulleted">Listado Detallado de Grupos</v-tab>
           <v-tab value="upload" prepend-icon="mdi-file-excel-box">Carga Masiva Excel</v-tab>
+          <v-tab to="/analytics" prepend-icon="mdi-chart-box-outline">Analítica Operativa</v-tab>
         </v-tabs>
         <div class="d-flex align-center ga-3 my-2">
           <v-select

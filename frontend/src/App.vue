@@ -22,6 +22,18 @@
         {{ authStore.tenantName }}
       </v-chip>
 
+      <!-- Link a Analítica Operativa para Coordinador/Admin -->
+      <v-btn
+        v-if="authStore.isCoordinator"
+        variant="text"
+        color="white"
+        class="mr-2 text-none font-weight-medium"
+        prepend-icon="mdi-chart-box-outline"
+        to="/analytics"
+      >
+        Analítica Operativa
+      </v-btn>
+
       <v-spacer></v-spacer>
 
       <!-- Role Switcher for Rapid Prototype Testing -->
