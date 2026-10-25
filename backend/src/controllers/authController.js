@@ -131,9 +131,10 @@ exports.oauthCallback = async (req, res) => {
     let roleId = user.role_id;
     let tenantName = user.tenant_name;
     let identifier = user.identificador || user.identifier;
+    let dbInfo;
 
     try {
-      const dbInfo = await pool.query(
+      dbInfo = await pool.query(
         `SELECT u.*, COALESCE(r.nombre, r.name) AS role_name, t.name AS tenant_name
          FROM users u
          LEFT JOIN roles r ON u.role_id = r.id
@@ -141,7 +142,7 @@ exports.oauthCallback = async (req, res) => {
          WHERE u.id = $1`,
         [user.id]
       );
-      if (dbInfo.rows.length > 0) {
+      if (dbInfo && dbInfo.rows && dbInfo.rows.length > 0) {
         roleName = dbInfo.rows[0].role_name || roleName;
         roleId = dbInfo.rows[0].role_id || roleId;
         tenantName = dbInfo.rows[0].tenant_name || tenantName;
@@ -152,6 +153,9 @@ exports.oauthCallback = async (req, res) => {
     }
 
     const finalRole = roleName || (roleId === 'role-coord' ? 'Coordinador' : (roleId === 'role-teacher' ? 'Profesor' : roleId));
+    const fullName = (dbInfo?.rows?.[0]?.nombre || dbInfo?.rows?.[0]?.apellidos)
+      ? `${dbInfo.rows[0].nombre || ''} ${dbInfo.rows[0].apellidos || ''}`.trim()
+      : (user.name || user.nombre || 'Usuario');
 
     const tokenPayload = {
       sub: user.id,
@@ -161,7 +165,10 @@ exports.oauthCallback = async (req, res) => {
       role_name: finalRole,
       role_id: roleId,
       email: user.email,
-      name: user.name || user.nombre,
+      nombre: dbInfo?.rows?.[0]?.nombre || user.nombre,
+      apellidos: dbInfo?.rows?.[0]?.apellidos || user.apellidos,
+      name: fullName,
+      identificador: identifier,
       identifier: identifier
     };
 
@@ -255,9 +262,12 @@ const isPavilionEmail = (email) => email && email.trim().toLowerCase().endsWith(
 // Register user with tenant and role selection
 exports.register = async (req, res) => {
   try {
-    const { name, email, password, role_name, tenant_id, new_tenant_name, identifier } = req.body;
+    const { name, nombre, apellidos, email, password, role_name, rol_id, tenant_id, new_tenant_name, identifier, identificador } = req.body;
 
-    if (!name || !email || !password || !role_name) {
+    const rawName = (nombre || apellidos) ? `${nombre || ''} ${apellidos || ''}`.trim() : (name || '');
+    const finalRoleName = role_name || (rol_id === 1 || rol_id === '1' || rol_id === 'role-coord' ? 'Coordinador' : (rol_id === 2 || rol_id === '2' || rol_id === 'role-teacher' ? 'Profesor' : rol_id));
+
+    if (!rawName || !email || !password || !finalRoleName) {
       return res.status(400).json({ error: 'Todos los campos obligatorios deben estar presentes (nombre, correo, contraseña, rol).' });
     }
 
@@ -287,13 +297,13 @@ exports.register = async (req, res) => {
       return res.status(404).json({ error: 'La institución educativa especificada no existe.' });
     }
 
-    if (role_name === 'Alumno') {
+    if (finalRoleName === 'Alumno') {
       return res.status(400).json({ error: 'El rol Alumno ya no está disponible en el sistema.' });
     }
 
-    const role = await query.get('SELECT id, name, COALESCE(nombre, name) as nombre FROM roles WHERE name = ? OR nombre = ?', [role_name, role_name]);
+    const role = await query.get('SELECT id, name, COALESCE(nombre, name) as nombre FROM roles WHERE name = ? OR nombre = ? OR id = ?', [finalRoleName, finalRoleName, finalRoleName]);
     if (!role) {
-      return res.status(400).json({ error: `El rol '${role_name}' no es válido.` });
+      return res.status(400).json({ error: `El rol '${finalRoleName}' no es válido.` });
     }
 
     const existingUser = await query.get('SELECT id FROM users WHERE tenant_id = ? AND email = ?', [finalTenantId, email.toLowerCase().trim()]);
@@ -301,15 +311,25 @@ exports.register = async (req, res) => {
       return res.status(409).json({ error: 'Ya existe un usuario con este correo electrónico en esta institución.' });
     }
 
+    let finalNombre = nombre ? nombre.trim() : '';
+    let finalApellidos = apellidos ? apellidos.trim() : '';
+    if (!finalNombre && rawName) {
+      const parts = rawName.trim().split(' ');
+      finalNombre = parts[0];
+      finalApellidos = parts.slice(1).join(' ') || '';
+    }
+
     const passwordHash = await bcrypt.hash(password, 10);
     const userId = 'usr-' + Date.now();
     const finalIdentifier = await getNextIdentifier(role.nombre || role.name, pool);
 
     await query.run(
-      `INSERT INTO users (id, tenant_id, name, email, password_hash, role_id, identifier)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      [userId, finalTenantId, name.trim(), email.toLowerCase().trim(), passwordHash, role.id, finalIdentifier]
+      `INSERT INTO users (id, tenant_id, nombre, apellidos, email, password_hash, role_id, identificador)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [userId, finalTenantId, finalNombre, finalApellidos, email.toLowerCase().trim(), passwordHash, role.id, finalIdentifier]
     );
+
+    const fullName = `${finalNombre} ${finalApellidos}`.trim() || rawName;
 
     const tokenPayload = {
       sub: userId,
@@ -319,7 +339,10 @@ exports.register = async (req, res) => {
       role_name: role.nombre || role.name,
       role_id: role.id,
       email: email.toLowerCase().trim(),
-      name: name.trim(),
+      nombre: finalNombre,
+      apellidos: finalApellidos,
+      name: fullName,
+      identificador: finalIdentifier,
       identifier: finalIdentifier
     };
 
@@ -341,6 +364,7 @@ exports.register = async (req, res) => {
       user: {
         ...tokenPayload,
         tenant_name: tenant.name,
+        identificador: finalIdentifier,
         identifier: finalIdentifier
       }
     });
@@ -397,6 +421,11 @@ exports.login = async (req, res) => {
       return res.status(401).json({ error: 'Credenciales inválidas (contraseña incorrecta)' });
     }
 
+    const fullName = (user.nombre || user.apellidos)
+      ? `${user.nombre || ''} ${user.apellidos || ''}`.trim()
+      : (user.name || '');
+    const identifierVal = user.identificador || user.identifier || '';
+
     const tokenPayload = {
       sub: user.id,
       id: user.id,
@@ -405,7 +434,11 @@ exports.login = async (req, res) => {
       role_name: user.role_name,
       role_id: user.role_id,
       email: user.email,
-      name: user.name
+      nombre: user.nombre,
+      apellidos: user.apellidos,
+      name: fullName,
+      identificador: identifierVal,
+      identifier: identifierVal
     };
 
     const accessToken = jwt.sign(tokenPayload, JWT_SECRET, { expiresIn: '15m' });
@@ -426,7 +459,8 @@ exports.login = async (req, res) => {
       user: {
         ...tokenPayload,
         tenant_name: user.tenant_name,
-        identifier: user.identifier
+        identificador: identifierVal,
+        identifier: identifierVal
       }
     });
   } catch (err) {
@@ -439,7 +473,10 @@ exports.login = async (req, res) => {
 exports.getMe = async (req, res) => {
   try {
     const user = await query.get(
-      `SELECT u.id, u.tenant_id, u.name, u.email, u.identifier, COALESCE(r.nombre, r.name) as role_name, t.name as tenant_name
+      `SELECT u.id, u.tenant_id, u.nombre, u.apellidos,
+              TRIM(CONCAT(COALESCE(u.nombre, ''), ' ', COALESCE(u.apellidos, ''))) AS name,
+              u.email, u.identificador, u.identificador AS identifier,
+              COALESCE(r.nombre, r.name) as role_name, t.name as tenant_name
        FROM users u
        JOIN roles r ON u.role_id = r.id
        JOIN tenants t ON u.tenant_id = t.id

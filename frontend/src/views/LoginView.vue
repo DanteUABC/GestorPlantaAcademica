@@ -75,7 +75,7 @@
 
       <v-window v-model="tab">
         <!-- TAB 1: INICIAR SESIÓN -->
-        <v-window-item value="login">
+        <v-window-item value="login" class="pt-1">
           <v-form @submit.prevent="handleLogin" v-model="isLoginFormValid">
             <!-- Institution (Tenant) Selection -->
             <v-select
@@ -87,7 +87,7 @@
               variant="outlined"
               density="comfortable"
               prepend-inner-icon="mdi-domain"
-              class="mb-2"
+              class="mt-2 mb-2"
               :rules="[v => !!v || 'Debe seleccionar una institución']"
             ></v-select>
 
@@ -159,9 +159,50 @@
         </v-window-item>
 
         <!-- TAB 2: REGISTRARSE CON PREGUNTA DE ROL Y DATOS BÁSICOS -->
-        <v-window-item value="register">
+        <v-window-item value="register" class="pt-1">
           <v-form @submit.prevent="handleRegister" v-model="isRegisterFormValid">
-            <!-- Institution -->
+            <!-- 1. Nombre(s) -->
+            <v-text-field
+              v-model="registerForm.nombre"
+              label="Nombre(s)"
+              placeholder="Ej. Juan"
+              variant="outlined"
+              density="comfortable"
+              prepend-inner-icon="mdi-account-outline"
+              class="mt-2 mb-2"
+              :rules="[v => !!v || 'El nombre es obligatorio']"
+              required
+            ></v-text-field>
+
+            <!-- 2. Apellidos -->
+            <v-text-field
+              v-model="registerForm.apellidos"
+              label="Apellidos"
+              placeholder="Ej. Pérez"
+              variant="outlined"
+              density="comfortable"
+              prepend-inner-icon="mdi-account-details-outline"
+              class="mb-2"
+              :rules="[v => !!v || 'Los apellidos son obligatorios']"
+              required
+            ></v-text-field>
+
+            <!-- 3. Selecciona tu Rol -->
+            <v-select
+              v-model="registerForm.role_name"
+              :items="roles"
+              item-title="title"
+              item-value="value"
+              label="Selecciona tu Rol"
+              variant="outlined"
+              density="comfortable"
+              prepend-inner-icon="mdi-badge-account-horizontal-outline"
+              class="mb-2"
+              :rules="[v => !!v || 'Debe seleccionar un rol']"
+              required
+            ></v-select>
+
+            <!-- 4. Institución Educativa (Tenant) -->
             <v-select
               v-model="registerForm.tenant_id"
               :items="tenants"
@@ -173,31 +214,10 @@
               prepend-inner-icon="mdi-domain"
               class="mb-2"
               :rules="[v => !!v || 'Seleccione la institución']"
+              required
             ></v-select>
 
-            <!-- Personal Basic Info -->
-            <v-text-field
-              v-model="registerForm.name"
-              label="Nombre Completo"
-              variant="outlined"
-              density="comfortable"
-              prepend-inner-icon="mdi-account-outline"
-              class="mb-2"
-              :rules="[v => !!v || 'El nombre es obligatorio']"
-            ></v-text-field>
-
-            <v-text-field
-              :model-value="generatedIdPreview"
-              label="ID Institucional Asignado"
-              variant="outlined"
-              density="comfortable"
-              prepend-inner-icon="mdi-badge-account-horizontal-outline"
-              class="mb-2"
-              readonly
-              hint="Se guardará en la base de datos automáticamente sin repetirse."
-              persistent-hint
-            ></v-text-field>
-
+            <!-- 5. Correo de la plataforma -->
             <v-text-field
               v-model="registerForm.email"
               label="Correo de la plataforma"
@@ -211,6 +231,7 @@
               required
             ></v-text-field>
 
+            <!-- 6. Contraseña -->
             <v-text-field
               v-model="registerForm.password"
               label="Contraseña"
@@ -218,24 +239,10 @@
               variant="outlined"
               density="comfortable"
               prepend-inner-icon="mdi-lock-outline"
-              class="mb-2"
+              class="mb-4"
               :rules="[v => !!v || 'La contraseña es obligatoria']"
               required
             ></v-text-field>
-
-            <!-- MANDATORY ROLE QUESTION -->
-            <v-card variant="outlined" class="pa-3 mb-4 bg-grey-lighten-5">
-              <div class="text-subtitle-2 font-weight-bold mb-1 text-primary">
-                ¿Cuál es tu rol en la institución? *
-              </div>
-              <div class="text-caption text-grey-darken-1 mb-2">
-                Selecciona la función que desempeñarás en el sistema:
-              </div>
-              <v-radio-group v-model="registerForm.role_name" inline hide-details>
-                <v-radio label="Coordinador" value="Coordinador" color="purple-accent-4"></v-radio>
-                <v-radio label="Profesor" value="Profesor" color="teal-darken-1"></v-radio>
-              </v-radio-group>
-            </v-card>
 
             <v-btn
               type="submit"
@@ -287,19 +294,18 @@ const loginForm = ref({
   password: 'demo123'
 });
 
-const registerForm = ref({
-  tenant_id: 'tenant-itc',
-  name: '',
-  identifier: '',
-  email: '',
-  password: '',
-  role_name: 'Profesor'
-});
+const roles = [
+  { title: 'Profesor', value: 'Profesor' },
+  { title: 'Coordinador', value: 'Coordinador' }
+];
 
-const generatedIdPreview = computed(() => {
-  return registerForm.value.role_name === 'Coordinador'
-    ? 'ID: C### (Asignación automática C001..C999)'
-    : 'ID: M### (Asignación automática M001..M999)';
+const registerForm = ref({
+  nombre: '',
+  apellidos: '',
+  role_name: 'Profesor',
+  tenant_id: 'tenant-itc',
+  email: '',
+  password: ''
 });
 
 onMounted(async () => {
@@ -360,7 +366,12 @@ async function handleRegister() {
   loading.value = true;
   errorMessage.value = '';
   try {
-    const user = await authStore.register(registerForm.value);
+    const fullName = `${registerForm.value.nombre || ''} ${registerForm.value.apellidos || ''}`.trim();
+    const payload = {
+      ...registerForm.value,
+      name: fullName
+    };
+    const user = await authStore.register(payload);
     successMessage.value = '¡Cuenta creada con éxito! Redirigiendo...';
     setTimeout(async () => {
       await navigateByRole(user.role_name);

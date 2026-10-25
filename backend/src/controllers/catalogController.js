@@ -203,11 +203,13 @@ async function deleteClassroom(req, res) {
 async function getTeachers(req, res) {
   try {
     const teachers = await query.all(
-      `SELECT u.id, u.name, u.email, u.identifier
+      `SELECT u.id, u.nombre, u.apellidos,
+              TRIM(CONCAT(COALESCE(u.nombre, ''), ' ', COALESCE(u.apellidos, ''))) AS name,
+              u.email, u.identificador, u.identificador AS identifier
        FROM users u
        JOIN roles r ON u.role_id = r.id
-       WHERE u.tenant_id = ? AND r.name = 'Profesor'
-       ORDER BY u.name ASC`,
+       WHERE u.tenant_id = ? AND (r.name = 'Profesor' OR r.nombre = 'Profesor')
+       ORDER BY name ASC`,
       [req.tenant_id]
     );
     res.json(teachers);

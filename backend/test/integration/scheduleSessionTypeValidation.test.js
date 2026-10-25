@@ -74,8 +74,8 @@ describe('Integración: Validación de coherencia entre tipo de sesión y tipo d
 
     // Insertar docente
     await pool.query(
-      'INSERT INTO users (id, tenant_id, name, email, role_id, identifier) VALUES ($1, $2, $3, $4, $5, $6)',
-      [testTeacher.id, testTeacher.tenant_id, testTeacher.name, testTeacher.email, testTeacher.role_id, testTeacher.identifier]
+      'INSERT INTO users (id, tenant_id, nombre, apellidos, email, role_id, identificador) VALUES ($1, $2, $3, $4, $5, $6, $7)',
+      [testTeacher.id, testTeacher.tenant_id, testTeacher.name, '', testTeacher.email, testTeacher.role_id, testTeacher.identifier]
     );
   });
 

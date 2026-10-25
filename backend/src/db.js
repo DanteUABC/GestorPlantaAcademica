@@ -4,6 +4,7 @@ const bcrypt = require('bcryptjs');
 const { migrateExistingUserIdentifiers } = require('./utils/identifierHelper');
 const { migrateClassroomsType } = require('./utils/classroomMigration');
 const { migrateSchedulesGroupAndSession } = require('./utils/schedulesMigration');
+const { migrateUserSchema } = require('./utils/userSchemaMigration');
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL || 'postgresql://postgres:postgres@localhost:5432/gestor_planta'
@@ -72,13 +73,14 @@ async function initDatabase() {
     CREATE TABLE IF NOT EXISTS users (
       id VARCHAR(50) PRIMARY KEY,
       tenant_id VARCHAR(50),
-      name VARCHAR(255) NOT NULL,
+      nombre VARCHAR(255),
+      apellidos VARCHAR(255),
       email VARCHAR(255) NOT NULL,
       password_hash VARCHAR(255),
       role_id VARCHAR(50),
-      identifier VARCHAR(100),
-      google_id VARCHAR(255) UNIQUE,
-      microsoft_id VARCHAR(255) UNIQUE,
+      identificador VARCHAR(100),
+      provider VARCHAR(50),
+      provider_id VARCHAR(255),
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE,
       FOREIGN KEY (role_id) REFERENCES roles(id),
@@ -148,9 +150,7 @@ async function initDatabase() {
     CREATE INDEX IF NOT EXISTS idx_horarios_tenant ON horarios(tenant_id);
     CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
 
-    -- Vistas de compatibilidad RBAC y tablas en español
-    CREATE OR REPLACE VIEW usuarios AS SELECT * FROM users;
-    CREATE OR REPLACE VIEW usuarios_roles AS SELECT id AS usuario_id, tenant_id, role_id AS rol_id FROM users;
+    -- Vistas de compatibilidad inicial
     CREATE OR REPLACE VIEW aulas AS SELECT * FROM classrooms;
   `);
 
@@ -164,15 +164,12 @@ async function initDatabase() {
       ALTER TABLE roles ADD COLUMN IF NOT EXISTS nombre VARCHAR(100);
       UPDATE roles SET nombre = name WHERE nombre IS NULL;
       ALTER TABLE users ALTER COLUMN password_hash DROP NOT NULL;
-      ALTER TABLE users ALTER COLUMN name DROP NOT NULL;
       ALTER TABLE users ALTER COLUMN id SET DEFAULT ('usr-' || substr(gen_random_uuid()::text, 1, 16));
       ALTER TABLE users ADD COLUMN IF NOT EXISTS nombre VARCHAR(255);
       ALTER TABLE users ADD COLUMN IF NOT EXISTS apellidos VARCHAR(255);
       ALTER TABLE users ADD COLUMN IF NOT EXISTS identificador VARCHAR(100);
       ALTER TABLE users ADD COLUMN IF NOT EXISTS provider VARCHAR(50);
       ALTER TABLE users ADD COLUMN IF NOT EXISTS provider_id VARCHAR(255);
-      ALTER TABLE users ADD COLUMN IF NOT EXISTS google_id VARCHAR(255) UNIQUE;
-      ALTER TABLE users ADD COLUMN IF NOT EXISTS microsoft_id VARCHAR(255) UNIQUE;
       UPDATE users SET email = REPLACE(email, '@itc.edu', '@pavilion.com') WHERE email LIKE '%@itc.edu';
 
       -- Restricción única de correo para usuarios
@@ -200,10 +197,26 @@ async function initDatabase() {
 
       -- Vistas y reglas para compatibilidad total
       DROP VIEW IF EXISTS usuarios CASCADE;
-      CREATE OR REPLACE VIEW usuarios AS SELECT * FROM users;
+      CREATE OR REPLACE VIEW usuarios AS 
+        SELECT 
+          id,
+          tenant_id,
+          nombre,
+          apellidos,
+          TRIM(CONCAT(COALESCE(nombre, ''), ' ', COALESCE(apellidos, ''))) AS name,
+          email,
+          password_hash,
+          role_id,
+          identificador,
+          identificador AS identifier,
+          provider,
+          provider_id,
+          created_at
+        FROM users;
+
       DROP VIEW IF EXISTS usuarios_roles CASCADE;
       CREATE OR REPLACE VIEW usuarios_roles AS SELECT id AS usuario_id, tenant_id, role_id AS rol_id FROM users;
-    CREATE OR REPLACE VIEW aulas AS SELECT * FROM classrooms;
+      CREATE OR REPLACE VIEW aulas AS SELECT * FROM classrooms;
       CREATE OR REPLACE RULE usuarios_roles_insert AS
         ON INSERT TO usuarios_roles
         DO INSTEAD
@@ -220,42 +233,15 @@ async function initDatabase() {
           END 
           WHERE id = NEW.usuario_id;
     `);
-
-    // Sincronización automática de campos en users
-    await query.exec(`
-      CREATE OR REPLACE FUNCTION sync_user_fields()
-      RETURNS TRIGGER AS $$
-      BEGIN
-        IF NEW.identifier IS NULL AND NEW.identificador IS NOT NULL THEN
-          NEW.identifier := NEW.identificador;
-        ELSIF NEW.identificador IS NULL AND NEW.identifier IS NOT NULL THEN
-          NEW.identificador := NEW.identifier;
-        END IF;
-
-        IF NEW.name IS NULL AND (NEW.nombre IS NOT NULL OR NEW.apellidos IS NOT NULL) THEN
-          NEW.name := TRIM(CONCAT(COALESCE(NEW.nombre, ''), ' ', COALESCE(NEW.apellidos, '')));
-        ELSIF NEW.nombre IS NULL AND NEW.name IS NOT NULL THEN
-          NEW.nombre := NEW.name;
-        END IF;
-
-        IF NEW.provider = 'google' AND NEW.provider_id IS NOT NULL AND NEW.google_id IS NULL THEN
-          NEW.google_id := NEW.provider_id;
-        ELSIF NEW.provider = 'microsoft' AND NEW.provider_id IS NOT NULL AND NEW.microsoft_id IS NULL THEN
-          NEW.microsoft_id := NEW.provider_id;
-        END IF;
-
-        RETURN NEW;
-      END;
-      $$ LANGUAGE plpgsql;
-
-      DROP TRIGGER IF EXISTS trg_sync_user_fields ON users;
-      CREATE TRIGGER trg_sync_user_fields
-      BEFORE INSERT OR UPDATE ON users
-      FOR EACH ROW
-      EXECUTE FUNCTION sync_user_fields();
-    `);
   } catch (migErr) {
     console.warn('Nota en migraciones incrementales:', migErr.message);
+  }
+
+  // Migración de consolidación del esquema de usuarios (unificar nombres, identificadores y OAuth)
+  try {
+    await migrateUserSchema(pool);
+  } catch (userMigErr) {
+    console.warn('Nota en migración de esquema de usuarios:', userMigErr.message);
   }
 
   // Migración DDL para classrooms: type e índice compuesto multi-tenant
@@ -376,29 +362,32 @@ async function seedInitialData() {
     {
       id: 'usr-coord-1',
       tenant_id: 'tenant-itc',
-      name: 'Dr. Roberto Mendoza (Coordinador)',
+      nombre: 'Dr. Roberto',
+      apellidos: 'Mendoza (Coordinador)',
       email: 'coordinador@pavilion.com',
       password_hash: defaultPasswordHash,
       role_id: 'role-coord',
-      identifier: 'C001'
+      identificador: 'C001'
     },
     {
       id: 'usr-prof-1',
       tenant_id: 'tenant-itc',
-      name: 'Mtra. Elena Salgado (Profesora)',
+      nombre: 'Mtra. Elena',
+      apellidos: 'Salgado (Profesora)',
       email: 'elena.salgado@pavilion.com',
       password_hash: defaultPasswordHash,
       role_id: 'role-teacher',
-      identifier: 'M001'
+      identificador: 'M001'
     },
     {
       id: 'usr-prof-2',
       tenant_id: 'tenant-itc',
-      name: 'Dr. Carlos Vega (Profesor)',
+      nombre: 'Dr. Carlos',
+      apellidos: 'Vega (Profesor)',
       email: 'carlos.vega@pavilion.com',
       password_hash: defaultPasswordHash,
       role_id: 'role-teacher',
-      identifier: 'M002'
+      identificador: 'M002'
     }
   ];
 
@@ -406,9 +395,9 @@ async function seedInitialData() {
     const existing = await query.get('SELECT id FROM users WHERE id = ?', [u.id]);
     if (!existing) {
       await query.run(
-        `INSERT INTO users (id, tenant_id, name, email, password_hash, role_id, identifier)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`,
-        [u.id, u.tenant_id, u.name, u.email, u.password_hash, u.role_id, u.identifier]
+        `INSERT INTO users (id, tenant_id, nombre, apellidos, email, password_hash, role_id, identificador)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        [u.id, u.tenant_id, u.nombre, u.apellidos, u.email, u.password_hash, u.role_id, u.identificador]
       );
     } else {
       await query.run('UPDATE users SET email = ? WHERE id = ?', [u.email, u.id]);

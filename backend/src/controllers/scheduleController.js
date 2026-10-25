@@ -38,9 +38,7 @@ async function createSchedule(req, res) {
     if (!subject) return res.status(404).json({ error: 'Materia no encontrada en esta institución' });
 
     const teacher = await query.get(
-      `SELECT u.id, u.name FROM users u
-       JOIN roles r ON u.role_id = r.id
-       WHERE u.id = ? AND u.tenant_id = ? AND r.name = 'Profesor'`,
+      `SELECT u.id, TRIM(CONCAT(COALESCE(u.nombre, \'\'), \' \', COALESCE(u.apellidos, \'\'))) AS name FROM users u\n       JOIN roles r ON u.role_id = r.id\n       WHERE u.id = ? AND u.tenant_id = ? AND (r.name = \'Profesor\' OR r.nombre = \'Profesor\')`,
       [teacher_id, req.tenant_id]
     );
     if (!teacher) return res.status(404).json({ error: 'Docente no encontrado o no tiene rol de Profesor' });
@@ -114,10 +112,7 @@ async function createSchedule(req, res) {
 
     // 3. MOTOR ANTI-EMPALME: Comprobar colisión de Aula Física
     const classroomConflict = await query.get(
-      `SELECT s.*, sub.name as subject_name, u.name as teacher_name
-       FROM schedules s
-       JOIN subjects sub ON s.subject_id = sub.id
-       JOIN users u ON s.teacher_id = u.id
+      `SELECT s.*, sub.name as subject_name, TRIM(CONCAT(COALESCE(u.nombre, \'\'), \' \', COALESCE(u.apellidos, \'\'))) as teacher_name\n       FROM schedules s\n       JOIN subjects sub ON s.subject_id = sub.id\n       JOIN users u ON s.teacher_id = u.id
        WHERE s.tenant_id = ?
          AND s.classroom_id = ?
          AND s.day_of_week = ?
@@ -209,7 +204,7 @@ async function getCoordinatorSchedules(req, res) {
          sub.name as subject_name,
          sub.credits as subject_credits,
          t.id as teacher_id,
-         t.name as teacher_name,
+         TRIM(CONCAT(COALESCE(t.nombre, \'\'), \' \', COALESCE(t.apellidos, \'\'))) as teacher_name,
          t.email as teacher_email,
          cr.id as classroom_id,
          cr.name as classroom_name,
@@ -549,9 +544,9 @@ async function uploadExcelSchedule(req, res) {
     // Catálogos del tenant (aislamiento multi-tenant en cada consulta)
     const subjectsRes = await client.query('SELECT id, code FROM subjects WHERE tenant_id = $1', [tenantId]);
     const teachersRes = await client.query(
-      `SELECT u.id, u.email, u.name FROM users u
+      `SELECT u.id, u.email, TRIM(CONCAT(COALESCE(u.nombre, ''), ' ', COALESCE(u.apellidos, ''))) AS name FROM users u
        JOIN roles r ON u.role_id = r.id
-       WHERE u.tenant_id = $1 AND r.name = 'Profesor'`,
+       WHERE u.tenant_id = $1 AND (r.name = 'Profesor' OR r.nombre = 'Profesor')`,
       [tenantId]
     );
     const classroomsRes = await client.query('SELECT id, name, capacity FROM classrooms WHERE tenant_id = $1', [tenantId]);
@@ -629,7 +624,7 @@ async function uploadExcelSchedule(req, res) {
     // 4. Detección de empalmes (contra la BD del tenant y entre filas del mismo Excel)
     const existingRes = await client.query(
       `SELECT s.id, s.teacher_id, s.classroom_id, s.day_of_week, s.start_time, s.end_time, s.group_code,
-              sub.name AS subject_name, u.name AS teacher_name, cr.name AS classroom_name
+              sub.name AS subject_name, TRIM(CONCAT(COALESCE(u.nombre, \'\'), \' \', COALESCE(u.apellidos, \'\'))) AS teacher_name, cr.name AS classroom_name
        FROM schedules s
        JOIN subjects sub ON s.subject_id = sub.id
        JOIN users u ON s.teacher_id = u.id
@@ -732,7 +727,7 @@ async function exportSchedules(req, res) {
     // Si no hay registros en la tabla horarios, intentar consultar la tabla schedules
     if (data.length === 0) {
       const schedulesResult = await pool.query(
-        `SELECT sub.name AS materia, COALESCE(u.name, s.teacher_id) AS profesor,
+        `SELECT sub.name AS materia, COALESCE(TRIM(CONCAT(COALESCE(u.nombre, \'\'), \' \', COALESCE(u.apellidos, \'\'))), s.teacher_id) AS profesor,
                 s.day_of_week AS dia, s.start_time AS hora_inicio, s.end_time AS hora_fin
          FROM schedules s
          LEFT JOIN subjects sub ON s.subject_id = sub.id

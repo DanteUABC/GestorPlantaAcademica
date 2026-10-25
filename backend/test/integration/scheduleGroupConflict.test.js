@@ -80,10 +80,7 @@ describe('Integración: Motor Anti-Empalme de Grupo de Alumnos (POST /api/schedu
 
     // Insertar profesores de prueba sin horarios preasignados
     await pool.query(
-      `INSERT INTO users (id, tenant_id, name, email, role_id, identifier)
-       VALUES 
-         ('usr-prof-grp-1', 'tenant-itc', 'Prof. Roberto Sánchez', 'roberto.sanchez@pavilion.com', 'role-teacher', 'GRP01'),
-         ('usr-prof-grp-2', 'tenant-itc', 'Prof. Diana Morales', 'diana.morales@pavilion.com', 'role-teacher', 'GRP02')`
+      `INSERT INTO users (id, tenant_id, nombre, apellidos, email, role_id, identificador)\n       VALUES \n         (\'usr-prof-grp-1\', \'tenant-itc\', \'Roberto\', \'Sánchez\', \'roberto.sanchez@pavilion.com\', \'role-teacher\', \'GRP01\'),\n         (\'usr-prof-grp-2\', \'tenant-itc\', \'Diana\', \'Morales\', \'diana.morales@pavilion.com\', \'role-teacher\', \'GRP02\')`
     );
   });
 
@@ -228,7 +225,7 @@ describe('Integración: Motor Anti-Empalme de Grupo de Alumnos (POST /api/schedu
       // Crear materia, aula y docente en tenant-upn
       await pool.query("INSERT INTO subjects (id, tenant_id, code, name, credits) VALUES ('sub-upn-1', 'tenant-upn', 'UPN-101', 'Física UPN', 5) ON CONFLICT DO NOTHING");
       await pool.query("INSERT INTO classrooms (id, tenant_id, name, building, capacity, type) VALUES ('cr-upn-1', 'tenant-upn', 'Aula 101', 'Edificio UPN', 40, 'Aula Teórica') ON CONFLICT DO NOTHING");
-      await pool.query("INSERT INTO users (id, tenant_id, name, email, role_id, identifier) VALUES ('usr-prof-upn', 'tenant-upn', 'Prof UPN', 'prof.upn@pavilion.com', 'role-teacher', 'PUPN1') ON CONFLICT DO NOTHING");
+      await pool.query("INSERT INTO users (id, tenant_id, nombre, apellidos, email, role_id, identificador) VALUES ('usr-prof-upn', 'tenant-upn', 'Prof', 'UPN', 'prof.upn@pavilion.com', 'role-teacher', 'PUPN1') ON CONFLICT DO NOTHING");
 
       const res = await request(app)
         .post('/api/schedules')

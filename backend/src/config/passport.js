@@ -21,9 +21,10 @@ passport.use(
         if (result.rows.length > 0) {
           // Criterio 2: El correo externo ya existe, iniciar sesión normalmente
           const user = result.rows[0];
-          if (!user.google_id) {
-            await pool.query('UPDATE users SET google_id = $1 WHERE id = $2', [profile.id, user.id]);
-            user.google_id = profile.id;
+          if (!user.provider_id) {
+            await pool.query('UPDATE users SET provider = $1, provider_id = $2 WHERE id = $3', ['google', profile.id, user.id]);
+            user.provider = 'google';
+            user.provider_id = profile.id;
           }
           return done(null, { ...user, isNew: false });
         } else {
@@ -61,9 +62,10 @@ passport.use(
         if (result.rows.length > 0) {
           // Criterio 2: El correo externo ya existe, iniciar sesión normalmente
           const user = result.rows[0];
-          if (!user.microsoft_id) {
-            await pool.query('UPDATE users SET microsoft_id = $1 WHERE id = $2', [profile.id, user.id]);
-            user.microsoft_id = profile.id;
+          if (!user.provider_id) {
+            await pool.query('UPDATE users SET provider = $1, provider_id = $2 WHERE id = $3', ['microsoft', profile.id, user.id]);
+            user.provider = 'microsoft';
+            user.provider_id = profile.id;
           }
           return done(null, { ...user, isNew: false });
         } else {

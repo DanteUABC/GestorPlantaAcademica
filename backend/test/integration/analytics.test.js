@@ -158,10 +158,10 @@ describe('Motor de Analítica y SLA', () => {
         `, [testTenantId]);
 
         await pool.query(`
-            INSERT INTO users (id, tenant_id, name, email, role_id)
+            INSERT INTO users (id, tenant_id, nombre, apellidos, email, role_id)
             VALUES 
-            ('usr-fix-1', $1, 'Profesor Miercoles', 'prof1@analitica.com', 'role-teacher'),
-            ('usr-fix-2', $1, 'Profesor Sabado', 'prof2@analitica.com', 'role-teacher')
+            ('usr-fix-1', $1, 'Profesor', 'Miercoles', 'prof1@analitica.com', 'role-teacher'),
+            ('usr-fix-2', $1, 'Profesor', 'Sabado', 'prof2@analitica.com', 'role-teacher')
             ON CONFLICT (id) DO NOTHING;
         `, [testTenantId]);
 

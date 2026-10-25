@@ -118,7 +118,7 @@ exports.getTeacherUtilization = async (req, res) => {
                 SELECT 
                     s.tenant_id,
                     s.teacher_id AS profesor_id,
-                    COALESCE(u.name, s.teacher_id) AS profesor,
+                    COALESCE(TRIM(CONCAT(COALESCE(u.nombre, ''), ' ', COALESCE(u.apellidos, ''))), u.id, s.teacher_id) AS profesor,
                     s.start_time AS hora_inicio,
                     s.end_time AS hora_fin
                 FROM schedules s

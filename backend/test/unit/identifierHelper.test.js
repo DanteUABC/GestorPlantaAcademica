@@ -141,7 +141,7 @@ describe('identifierHelper - Generación y asignación de IDs por rol', () => {
               ]
             });
           }
-          if (sql.includes('UPDATE users SET identifier = $1 WHERE id = $2')) {
+          if (sql.includes('UPDATE users SET identifier = $1 WHERE id = $2') || sql.includes('UPDATE users SET identificador = $1 WHERE id = $2')) {
             updateQueries.push({ id: params[1], identifier: params[0] });
             return Promise.resolve({ rowCount: 1 });
           }

@@ -1,7 +1,7 @@
 /**
  * Helper para gestión y generación secuencial de IDs institucionales por rol:
- * - Coordinador / Administrador: "C001" hasta "C999"
- * - Profesor / Maestro: "M001" hasta "M999"
+ * - Coordinador / Administrador: "C001" hasta "C999" o "EMP-001"
+ * - Profesor / Maestro: "M001" hasta "M999" o "DOC-001"
  */
 
 function getRolePrefix(roleNameOrId) {
@@ -23,16 +23,17 @@ async function getNextIdentifier(roleNameOrId, poolOrClient) {
   const prefix = getRolePrefix(roleNameOrId);
 
   const res = await poolOrClient.query(
-    "SELECT identifier FROM users WHERE identifier LIKE $1",
+    "SELECT identificador FROM users WHERE identificador LIKE $1",
     [`${prefix}%`]
   );
 
   let maxNum = 0;
   const regex = new RegExp(`^${prefix}(\\d{3,})$`, 'i');
 
-  for (const row of res.rows) {
-    if (row.identifier) {
-      const match = row.identifier.trim().match(regex);
+  for (const row of (res.rows || [])) {
+    const val = row.identificador || row.identifier;
+    if (val) {
+      const match = String(val).trim().match(regex);
       if (match) {
         const num = parseInt(match[1], 10);
         if (!isNaN(num) && num > maxNum) {
@@ -58,7 +59,7 @@ async function getNextIdentifier(roleNameOrId, poolOrClient) {
 async function migrateExistingUserIdentifiers(poolOrClient) {
   // 1. Coordinadores / Administradores existentes
   const coords = await poolOrClient.query(`
-    SELECT u.id, u.identifier, u.created_at
+    SELECT u.id, u.identificador, u.created_at
     FROM users u
     JOIN roles r ON u.role_id = r.id
     WHERE (LOWER(r.name) LIKE '%coord%' OR LOWER(r.name) LIKE '%admin%' 
@@ -69,15 +70,15 @@ async function migrateExistingUserIdentifiers(poolOrClient) {
   let cIndex = 1;
   for (const user of coords.rows) {
     const targetId = `C${String(cIndex).padStart(3, '0')}`;
-    if (user.identifier !== targetId) {
-      await poolOrClient.query('UPDATE users SET identifier = $1 WHERE id = $2', [targetId, user.id]);
+    if (user.identificador !== targetId) {
+      await poolOrClient.query('UPDATE users SET identificador = $1 WHERE id = $2', [targetId, user.id]);
     }
     cIndex++;
   }
 
   // 2. Maestros / Profesores existentes
   const teachers = await poolOrClient.query(`
-    SELECT u.id, u.identifier, u.created_at
+    SELECT u.id, u.identificador, u.created_at
     FROM users u
     JOIN roles r ON u.role_id = r.id
     WHERE (LOWER(r.name) LIKE '%prof%' OR LOWER(r.name) LIKE '%maestr%' 
@@ -88,8 +89,8 @@ async function migrateExistingUserIdentifiers(poolOrClient) {
   let mIndex = 1;
   for (const user of teachers.rows) {
     const targetId = `M${String(mIndex).padStart(3, '0')}`;
-    if (user.identifier !== targetId) {
-      await poolOrClient.query('UPDATE users SET identifier = $1 WHERE id = $2', [targetId, user.id]);
+    if (user.identificador !== targetId) {
+      await poolOrClient.query('UPDATE users SET identificador = $1 WHERE id = $2', [targetId, user.id]);
     }
     mIndex++;
   }
@@ -108,7 +109,7 @@ async function generateIdentifier(roleNameOrId, poolOrClient) {
     : 'DOC-';
 
   const res = await targetPool.query(
-    "SELECT COALESCE(identificador, identifier) AS id_val FROM users WHERE identificador LIKE $1 OR identifier LIKE $1",
+    "SELECT identificador AS id_val FROM users WHERE identificador LIKE $1",
     [`${prefix}%`]
   );
 
@@ -116,8 +117,9 @@ async function generateIdentifier(roleNameOrId, poolOrClient) {
   const regex = new RegExp(`^${prefix}(\\d+)$`, 'i');
 
   for (const row of (res.rows || [])) {
-    if (row.id_val) {
-      const match = row.id_val.trim().match(regex);
+    const val = row.id_val || row.identificador || row.identifier;
+    if (val) {
+      const match = String(val).trim().match(regex);
       if (match) {
         const num = parseInt(match[1], 10);
         if (!isNaN(num) && num > maxNum) {
