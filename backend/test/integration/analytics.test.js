@@ -32,13 +32,11 @@ describe('Motor de Analítica y SLA', () => {
     });
 
     afterAll(async () => {
+        await pool.query('DELETE FROM schedules WHERE tenant_id = $1', [testTenantId]);
         await pool.query('DELETE FROM horarios WHERE tenant_id = $1', [testTenantId]);
-        // Limpieza en tabla de classrooms / vista aulas
-        try {
-            await pool.query('DELETE FROM classrooms WHERE tenant_id = $1', [testTenantId]);
-        } catch (e) {
-            await pool.query('DELETE FROM aulas WHERE tenant_id = $1', [testTenantId]);
-        }
+        await pool.query('DELETE FROM classrooms WHERE tenant_id = $1', [testTenantId]);
+        await pool.query('DELETE FROM subjects WHERE tenant_id = $1', [testTenantId]);
+        await pool.query('DELETE FROM users WHERE tenant_id = $1', [testTenantId]);
         await pool.query('DELETE FROM tenants WHERE id = $1', [testTenantId]);
     });
 
@@ -61,8 +59,9 @@ describe('Motor de Analítica y SLA', () => {
         expect(res.body).toHaveProperty('total_profesores');
     });
 
-    it('Criterio 3: Debe calcular métricas precisas con datos de prueba sembrados', async () => {
+    it('Criterio 3: Debe calcular métricas precisas con datos de prueba sembrados en horarios (retrocompatibilidad)', async () => {
         // 1. Limpiar datos previos
+        await pool.query('DELETE FROM schedules WHERE tenant_id = $1', [testTenantId]);
         await pool.query('DELETE FROM horarios WHERE tenant_id = $1', [testTenantId]);
         await pool.query('DELETE FROM classrooms WHERE tenant_id = $1', [testTenantId]);
 
@@ -125,6 +124,85 @@ describe('Motor de Analítica y SLA', () => {
         expect(Number(lunes7.aulas_totales)).toBe(2);
         expect(Number(lunes7.aulas_ocupadas)).toBe(1);
         expect(Number(lunes7.porcentaje_ocupacion)).toBe(50);
+    });
+
+    it('Criterio 4: Debe consultar la tabla oficial "schedules" y normalizar días con mayúsculas y acentos (Bugfix)', async () => {
+        // 1. Limpiar datos previos
+        await pool.query('DELETE FROM schedules WHERE tenant_id = $1', [testTenantId]);
+        await pool.query('DELETE FROM horarios WHERE tenant_id = $1', [testTenantId]);
+        await pool.query('DELETE FROM classrooms WHERE tenant_id = $1', [testTenantId]);
+        await pool.query('DELETE FROM subjects WHERE tenant_id = $1', [testTenantId]);
+        await pool.query('DELETE FROM users WHERE tenant_id = $1', [testTenantId]);
+
+        // 2. Sembrar aulas, materias y usuarios en el módulo oficial
+        await pool.query(`
+            INSERT INTO classrooms (id, tenant_id, name, building, capacity, type)
+            VALUES 
+            ('cr-fix-1', $1, 'Aula 101', 'Edificio Central', 40, 'Aula Teórica'),
+            ('cr-fix-2', $1, 'Aula 102', 'Edificio Central', 40, 'Aula Teórica')
+            ON CONFLICT (id) DO NOTHING;
+        `, [testTenantId]);
+
+        await pool.query(`
+            INSERT INTO subjects (id, tenant_id, code, name, credits)
+            VALUES ('sub-fix-1', $1, 'MAT-FIX', 'Cálculo Avanzado', 4)
+            ON CONFLICT (id) DO NOTHING;
+        `, [testTenantId]);
+
+        await pool.query(`
+            INSERT INTO users (id, tenant_id, name, email, role_id)
+            VALUES 
+            ('usr-fix-1', $1, 'Profesor Miercoles', 'prof1@analitica.com', 'role-teacher'),
+            ('usr-fix-2', $1, 'Profesor Sabado', 'prof2@analitica.com', 'role-teacher')
+            ON CONFLICT (id) DO NOTHING;
+        `, [testTenantId]);
+
+        // 3. Sembrar en 'schedules' usando variantes de acentos y mayúsculas:
+        // - 'miercoles' (minúscula y sin acento) de 08:00 a 11:00 (3 hrs)
+        // - 'JUEVES' (mayúscula completa) de 08:00 a 11:00 (3 hrs)
+        //   -> usr-fix-1 total: 6 hrs (< 10 -> profesores_subutilizados: 1)
+        // - 'sabado' (minúscula y sin acento) de 07:00 a 19:00 (12 hrs)
+        //   -> usr-fix-2 total: 12 hrs (10 a 40 -> profesores_optimos: 1)
+        await pool.query(`
+            INSERT INTO schedules (id, tenant_id, subject_id, teacher_id, classroom_id, day_of_week, start_time, end_time, max_students)
+            VALUES 
+            ('sch-fix-1', $1, 'sub-fix-1', 'usr-fix-1', 'cr-fix-1', 'miercoles', '08:00', '11:00', 30),
+            ('sch-fix-2', $1, 'sub-fix-1', 'usr-fix-1', 'cr-fix-1', 'JUEVES', '08:00', '11:00', 30),
+            ('sch-fix-3', $1, 'sub-fix-1', 'usr-fix-2', 'cr-fix-2', 'sabado', '07:00', '19:00', 30);
+        `, [testTenantId]);
+
+        // Probar utilización docente desde 'schedules'
+        const resDocentes = await request(app)
+            .get('/api/analytics/teacher-utilization')
+            .set('Authorization', `Bearer ${token}`);
+
+        expect(resDocentes.status).toBe(200);
+        expect(Number(resDocentes.body.total_profesores)).toBe(2);
+        expect(Number(resDocentes.body.profesores_subutilizados)).toBe(1);
+        expect(Number(resDocentes.body.profesores_optimos)).toBe(1);
+        expect(Number(resDocentes.body.profesores_sobrecupo)).toBe(0);
+
+        // Probar ocupación física reconociendo 'miercoles' como 'Miércoles' y 'sabado' como 'Sábado'
+        const resAulas = await request(app)
+            .get('/api/analytics/classroom-occupancy')
+            .set('Authorization', `Bearer ${token}`);
+
+        expect(resAulas.status).toBe(200);
+        expect(resAulas.body.length).toBe(84);
+
+        // Validar que el bloque 'Miércoles' a las 8hrs mapee la clase insertada con 'miercoles'
+        const miercoles8 = resAulas.body.find(b => b.dia === 'Miércoles' && b.hora_inicio === 8);
+        expect(miercoles8).toBeDefined();
+        expect(Number(miercoles8.aulas_ocupadas)).toBe(1);
+        expect(Number(miercoles8.aulas_totales)).toBe(2);
+        expect(Number(miercoles8.porcentaje_ocupacion)).toBe(50);
+
+        // Validar que el bloque 'Sábado' a las 7hrs mapee la clase insertada con 'sabado'
+        const sabado7 = resAulas.body.find(b => b.dia === 'Sábado' && b.hora_inicio === 7);
+        expect(sabado7).toBeDefined();
+        expect(Number(sabado7.aulas_ocupadas)).toBe(1);
+        expect(Number(sabado7.aulas_totales)).toBe(2);
+        expect(Number(sabado7.porcentaje_ocupacion)).toBe(50);
     });
 
     it('Debe rechazar solicitudes no autenticadas con 401', async () => {
