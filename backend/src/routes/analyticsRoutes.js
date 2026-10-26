@@ -8,5 +8,6 @@ router.use(authenticateJWT);
 
 router.get('/classroom-occupancy', analyticsController.getClassroomOccupancy);
 router.get('/teacher-utilization', analyticsController.getTeacherUtilization);
+router.get('/available-classrooms', analyticsController.getAvailableClassrooms);
 
 module.exports = router;

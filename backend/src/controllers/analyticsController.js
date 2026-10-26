@@ -163,3 +163,59 @@ exports.getTeacherUtilization = async (req, res) => {
         return res.status(500).json({ error: 'Error al generar analítica docente' });
     }
 };
+
+// Endpoint 3: Aulas Disponibles (Espacios Ociosos por Día, Bloque y Edificio)
+exports.getAvailableClassrooms = async (req, res) => {
+    const tenant_id = extractTenantId(req);
+    const { dia } = req.query;
+    const rawBloque = req.query.bloque ?? req.query.hora;
+    const rawEdificio = req.query.edificio?.trim();
+    const edificio = (rawEdificio && rawEdificio !== 'Todos los Edificios') ? rawEdificio : null;
+
+    if (!tenant_id) {
+        return res.status(400).json({ error: 'Tenant no identificado en la sesión' });
+    }
+
+    if (!dia || rawBloque === undefined || rawBloque === null || rawBloque === '') {
+        return res.status(400).json({ error: 'Parámetros dia y bloque son requeridos' });
+    }
+
+    let bloque = parseInt(rawBloque, 10);
+    if (isNaN(bloque) && typeof rawBloque === 'string' && rawBloque.includes(':')) {
+        bloque = parseInt(rawBloque.split(':')[0], 10);
+    }
+
+    if (isNaN(bloque)) {
+        return res.status(400).json({ error: 'El parámetro bloque debe ser un número entero' });
+    }
+
+    try {
+        const query = `
+            SELECT 
+                c.id,
+                c.name,
+                c.building,
+                c.capacity,
+                c.type
+            FROM classrooms c
+            WHERE c.tenant_id = $1
+              AND ($2::text IS NULL OR c.building = $2)
+              AND NOT EXISTS (
+                  SELECT 1 
+                  FROM schedules s
+                  WHERE s.tenant_id = $1
+                    AND s.classroom_id = c.id
+                    AND LOWER(TRANSLATE(TRIM(s.day_of_week), 'áéíóúÁÉÍÓÚüÜ', 'aeiouaeiouuU')) = LOWER(TRANSLATE(TRIM($3), 'áéíóúÁÉÍÓÚüÜ', 'aeiouaeiouuU'))
+                    AND EXTRACT(HOUR FROM s.start_time::time) <= $4::int
+                    AND EXTRACT(HOUR FROM s.end_time::time) > $4::int
+              )
+            ORDER BY c.building ASC, c.name ASC;
+        `;
+
+        const result = await pool.query(query, [tenant_id, edificio, dia, bloque]);
+        return res.status(200).json(result.rows);
+    } catch (error) {
+        console.error('Error al consultar aulas disponibles:', error);
+        return res.status(500).json({ error: 'Error al consultar aulas disponibles' });
+    }
+};

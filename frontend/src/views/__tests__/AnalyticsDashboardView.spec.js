@@ -70,7 +70,8 @@ describe('AnalyticsDashboardView.vue - Tablero de Control Directivo', () => {
     'v-list': true,
     'v-list-item': true,
     'v-list-item-title': true,
-    'v-progress-circular': true
+    'v-progress-circular': true,
+    'WeeklyHeatmap': true
   };
 
   it('debe montar el componente y ejecutar las llamadas concurrentes con Promise.all', async () => {

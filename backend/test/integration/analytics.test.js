@@ -286,11 +286,90 @@ describe('Motor de Analítica y SLA', () => {
         await pool.query("DELETE FROM tenants WHERE id IN ('test-dup-1', 'test-dup-2', 'test-inact-1')");
     });
 
+    it('Criterio 7: GET /api/analytics/available-classrooms debe devolver aulas libres y respetar filtros', async () => {
+        // Limpiar y preparar aulas en testTenantId
+        await pool.query('DELETE FROM schedules WHERE tenant_id = $1', [testTenantId]);
+        await pool.query('DELETE FROM classrooms WHERE tenant_id = $1', [testTenantId]);
+        await pool.query('DELETE FROM subjects WHERE tenant_id = $1', [testTenantId]);
+        await pool.query('DELETE FROM users WHERE tenant_id = $1', [testTenantId]);
+
+        // Crear 3 aulas: 2 en Edificio A y 1 en Edificio B
+        await pool.query(`
+            INSERT INTO classrooms (id, tenant_id, name, building, capacity, type)
+            VALUES 
+            ('cr-avail-1', $1, 'Aula 101', 'Edificio A', 30, 'Aula Teórica'),
+            ('cr-avail-2', $1, 'Aula 102', 'Edificio A', 25, 'Aula Teórica'),
+            ('cr-avail-3', $1, 'Lab 201', 'Edificio B', 20, 'Laboratorio')
+            ON CONFLICT (id) DO NOTHING;
+        `, [testTenantId]);
+
+        // Crear profesor y materia para el schedule
+        await pool.query(`
+            INSERT INTO users (id, tenant_id, nombre, apellidos, email, identificador)
+            VALUES ('usr-avail-1', $1, 'Prof', 'Test', 'prof.avail@pavilion.com', 'DOC-AVAIL-1')
+            ON CONFLICT (id) DO NOTHING;
+        `, [testTenantId]);
+
+        await pool.query(`
+            INSERT INTO subjects (id, tenant_id, code, name, credits)
+            VALUES ('sub-avail-1', $1, 'MAT-AV1', 'Materia Disponible 1', 4)
+            ON CONFLICT (id) DO NOTHING;
+        `, [testTenantId]);
+
+        // Ocupar Aula 101 el Lunes de 08:00 a 10:00 (bloques 8 y 9)
+        await pool.query(`
+            INSERT INTO schedules (id, tenant_id, subject_id, teacher_id, classroom_id, day_of_week, start_time, end_time, max_students, group_code, session_type)
+            VALUES ('sch-avail-1', $1, 'sub-avail-1', 'usr-avail-1', 'cr-avail-1', 'Lunes', '08:00', '10:00', 30, 'G1', 'Clase Teórica')
+            ON CONFLICT (id) DO NOTHING;
+        `, [testTenantId]);
+
+        // 1. Requerir parámetros: debe retornar 400 si falta dia o bloque
+        const resFaltaDia = await request(app)
+            .get('/api/analytics/available-classrooms?bloque=8')
+            .set('Authorization', `Bearer ${token}`);
+        expect(resFaltaDia.status).toBe(400);
+
+        const resFaltaBloque = await request(app)
+            .get('/api/analytics/available-classrooms?dia=Lunes')
+            .set('Authorization', `Bearer ${token}`);
+        expect(resFaltaBloque.status).toBe(400);
+
+        // 2. Consulta Lunes bloque 8 (Aula 101 ocupada, Aula 102 y Lab 201 libres)
+        const resLunes8 = await request(app)
+            .get('/api/analytics/available-classrooms?dia=Lunes&bloque=8')
+            .set('Authorization', `Bearer ${token}`);
+        expect(resLunes8.status).toBe(200);
+        expect(Array.isArray(resLunes8.body)).toBe(true);
+        expect(resLunes8.body.length).toBe(2);
+        const namesLunes8 = resLunes8.body.map(c => c.name);
+        expect(namesLunes8).not.toContain('Aula 101');
+        expect(namesLunes8).toContain('Aula 102');
+        expect(namesLunes8).toContain('Lab 201');
+
+        // 3. Consulta Lunes bloque 11 (todas libres)
+        const resLunes11 = await request(app)
+            .get('/api/analytics/available-classrooms?dia=Lunes&bloque=11')
+            .set('Authorization', `Bearer ${token}`);
+        expect(resLunes11.status).toBe(200);
+        expect(resLunes11.body.length).toBe(3);
+
+        // 4. Filtro por edificio = 'Edificio A' en bloque 8: solo debe figurar Aula 102
+        const resEdificioA = await request(app)
+            .get('/api/analytics/available-classrooms?dia=Lunes&bloque=8&edificio=Edificio%20A')
+            .set('Authorization', `Bearer ${token}`);
+        expect(resEdificioA.status).toBe(200);
+        expect(resEdificioA.body.length).toBe(1);
+        expect(resEdificioA.body[0].name).toBe('Aula 102');
+    });
+
     it('Debe rechazar solicitudes no autenticadas con 401', async () => {
         const resAulas = await request(app).get('/api/analytics/classroom-occupancy');
         expect(resAulas.status).toBe(401);
 
         const resDocentes = await request(app).get('/api/analytics/teacher-utilization');
         expect(resDocentes.status).toBe(401);
+
+        const resDisponibles = await request(app).get('/api/analytics/available-classrooms?dia=Lunes&bloque=8');
+        expect(resDisponibles.status).toBe(401);
     });
 });

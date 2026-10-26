@@ -158,6 +158,16 @@
         </v-col>
       </v-row>
 
+      <!-- Mapa de Calor Semanal (Heatmap de Ocupación Física) -->
+      <v-row class="mb-6">
+        <v-col cols="12">
+          <WeeklyHeatmap
+            :occupancy-data="occupancyData"
+            :selected-building="selectedBuilding"
+          />
+        </v-col>
+      </v-row>
+
       <!-- Sección Informativa Complementaria -->
       <v-row class="mb-6">
         <!-- Resumen de Balance Docente -->
@@ -267,6 +277,7 @@
 import { ref, computed, watch, onMounted } from 'vue';
 import { useAuthStore } from '../stores/authStore';
 import api from '../api/client';
+import WeeklyHeatmap from '../components/WeeklyHeatmap.vue';
 
 const authStore = useAuthStore();
 
