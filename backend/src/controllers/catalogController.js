@@ -202,17 +202,69 @@ async function deleteClassroom(req, res) {
 // List teachers in the tenant (users with role 'Profesor')
 async function getTeachers(req, res) {
   try {
-    const teachers = await query.all(
-      `SELECT u.id, u.nombre, u.apellidos,
-              TRIM(CONCAT(COALESCE(u.nombre, ''), ' ', COALESCE(u.apellidos, ''))) AS name,
-              u.email, u.identificador, u.identificador AS identifier
-       FROM users u
-       JOIN roles r ON u.role_id = r.id
-       WHERE u.tenant_id = ? AND (r.name = 'Profesor' OR r.nombre = 'Profesor')
-       ORDER BY name ASC`,
-      [req.tenant_id]
-    );
-    res.json(teachers);
+    let teachers = [];
+    try {
+      teachers = await query.all(
+        `SELECT u.id, u.nombre, u.apellidos,
+                TRIM(CONCAT(COALESCE(u.nombre, ''), ' ', COALESCE(u.apellidos, ''))) AS name,
+                u.email, u.identificador, u.identificador AS identifier,
+                COALESCE(u.min_weekly_hours, 0)::int AS min_weekly_hours,
+                COALESCE(u.max_weekly_hours, 40)::int AS max_weekly_hours,
+                COALESCE(u.max_weekly_hours, 40)::int AS max_hours,
+                COALESCE(ROUND(SUM(EXTRACT(EPOCH FROM (s.end_time::time - s.start_time::time)) / 3600)::numeric, 2), 0)::float AS assigned_hours
+         FROM users u
+         JOIN roles r ON u.role_id = r.id
+         LEFT JOIN schedules s ON s.teacher_id = u.id AND s.tenant_id = u.tenant_id
+         WHERE u.tenant_id = ? AND (r.name = 'Profesor' OR r.nombre = 'Profesor')
+         GROUP BY u.id, u.nombre, u.apellidos, u.email, u.identificador, u.min_weekly_hours, u.max_weekly_hours
+         ORDER BY name ASC`,
+        [req.tenant_id]
+      );
+    } catch (_sqlErr) {
+      const rawTeachers = await query.all(
+        `SELECT u.id, u.nombre, u.apellidos,
+                TRIM(CONCAT(COALESCE(u.nombre, ''), ' ', COALESCE(u.apellidos, ''))) AS name,
+                u.email, u.identificador, u.identificador AS identifier,
+                COALESCE(u.min_weekly_hours, 0) AS min_weekly_hours,
+                COALESCE(u.max_weekly_hours, 40) AS max_weekly_hours,
+                COALESCE(u.max_weekly_hours, 40) AS max_hours
+         FROM users u
+         JOIN roles r ON u.role_id = r.id
+         WHERE u.tenant_id = ? AND (r.name = 'Profesor' OR r.nombre = 'Profesor')
+         ORDER BY name ASC`,
+        [req.tenant_id]
+      );
+
+      const allSchedules = await query.all(
+        'SELECT teacher_id, start_time, end_time FROM schedules WHERE tenant_id = ?',
+        [req.tenant_id]
+      );
+
+      teachers = (rawTeachers || []).map((t) => {
+        const teacherSchedules = (allSchedules || []).filter((s) => s.teacher_id === t.id);
+        const assigned = teacherSchedules.reduce((sum, s) => {
+          const [sh, sm] = (s.start_time || '00:00').split(':').map(Number);
+          const [eh, em] = (s.end_time || '00:00').split(':').map(Number);
+          return sum + ((eh * 60 + em) - (sh * 60 + sm)) / 60;
+        }, 0);
+        return {
+          ...t,
+          min_weekly_hours: parseInt(t.min_weekly_hours, 10) || 0,
+          max_weekly_hours: parseInt(t.max_weekly_hours, 10) || 40,
+          max_hours: parseInt(t.max_hours, 10) || 40,
+          assigned_hours: Number(assigned.toFixed(2))
+        };
+      });
+    }
+
+    const formattedTeachers = (teachers || []).map((t) => ({
+      ...t,
+      min_weekly_hours: parseInt(t.min_weekly_hours, 10) || 0,
+      max_weekly_hours: parseInt(t.max_weekly_hours, 10) || 40,
+      assigned_hours: Number(Number(t.assigned_hours || 0).toFixed(2))
+    }));
+
+    res.json(formattedTeachers);
   } catch (err) {
     res.status(500).json({ error: 'Error al consultar profesores', details: err.message });
   }
