@@ -38,7 +38,11 @@ async function createSchedule(req, res) {
     if (!subject) return res.status(404).json({ error: 'Materia no encontrada en esta institución' });
 
     const teacher = await query.get(
-      `SELECT u.id, TRIM(CONCAT(COALESCE(u.nombre, \'\'), \' \', COALESCE(u.apellidos, \'\'))) AS name FROM users u\n       JOIN roles r ON u.role_id = r.id\n       WHERE u.id = ? AND u.tenant_id = ? AND (r.name = \'Profesor\' OR r.nombre = \'Profesor\')`,
+      `SELECT u.id, u.min_weekly_hours, u.max_weekly_hours,
+              TRIM(CONCAT(COALESCE(u.nombre, ''), ' ', COALESCE(u.apellidos, ''))) AS name
+       FROM users u
+       JOIN roles r ON u.role_id = r.id
+       WHERE u.id = ? AND u.tenant_id = ? AND (r.name = 'Profesor' OR r.nombre = 'Profesor')`,
       [teacher_id, req.tenant_id]
     );
     if (!teacher) return res.status(404).json({ error: 'Docente no encontrado o no tiene rol de Profesor' });
@@ -151,7 +155,38 @@ async function createSchedule(req, res) {
       });
     }
 
-    // 5. Inserción del nuevo horario aislado por tenant_id
+    // 5. VALIDACIÓN DE LÍMITE CONTRACTUAL DOCENTE
+    const newClassDurationHours = (timeToMinutes(end_time) - timeToMinutes(start_time)) / 60;
+    const maxContractHours = Number(teacher.max_weekly_hours !== undefined && teacher.max_weekly_hours !== null ? teacher.max_weekly_hours : 40);
+    const teacherName = teacher.name && teacher.name.trim() ? teacher.name.trim() : 'Docente';
+
+    let currentAssignedHours = 0;
+    try {
+      const hoursResult = await query.get(
+        `SELECT COALESCE(SUM(EXTRACT(EPOCH FROM (end_time::time - start_time::time)) / 3600), 0)::float AS assigned_hours
+         FROM schedules
+         WHERE teacher_id = ? AND tenant_id = ?`,
+        [teacher_id, req.tenant_id]
+      );
+      currentAssignedHours = Number(hoursResult?.assigned_hours || 0);
+    } catch (_err) {
+      const existingTeacherSchedules = await query.all(
+        'SELECT start_time, end_time FROM schedules WHERE teacher_id = ? AND tenant_id = ?',
+        [teacher_id, req.tenant_id]
+      );
+      currentAssignedHours = (existingTeacherSchedules || []).reduce((sum, s) => {
+        return sum + (timeToMinutes(s.end_time) - timeToMinutes(s.start_time)) / 60;
+      }, 0);
+    }
+
+    if ((currentAssignedHours + newClassDurationHours) > maxContractHours) {
+      return res.status(409).json({
+        error: 'Límite contractual excedido',
+        message: `El profesor ${teacherName} excedería su límite contractual de ${maxContractHours} horas semanales (actual: ${currentAssignedHours} hrs, intentando asignar: ${newClassDurationHours} hrs)`
+      });
+    }
+
+    // 6. Inserción del nuevo horario aislado por tenant_id
     const scheduleId = 'sch-' + Date.now() + '-' + Math.random().toString(36).slice(2, 7);
     const capacity = assignedStudents;
 
