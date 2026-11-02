@@ -11,10 +11,29 @@ async function getSubjects(req, res) {
   try {
     const tenantId = req.tenant_id || req.user?.tenant_id;
     const subjects = await query.all(
-      'SELECT id, tenant_id, code, name, credits FROM subjects WHERE tenant_id = ? ORDER BY code ASC, name ASC',
+      `SELECT sub.id, sub.code, sub.name, sub.credits, sub.tenant_id,
+              COALESCE(COUNT(DISTINCT s.id), 0)::int AS assigned_groups
+       FROM subjects sub
+       LEFT JOIN schedules s ON s.subject_id = sub.id AND s.tenant_id = sub.tenant_id
+       WHERE sub.tenant_id = ?
+       GROUP BY sub.id, sub.code, sub.name, sub.credits, sub.tenant_id
+       ORDER BY sub.code ASC, sub.name ASC`,
       [tenantId]
     );
-    res.json(subjects);
+
+    const formatted = (subjects || []).map(s => {
+      const assigned = parseInt(s.assigned_groups || 0, 10);
+      return {
+        ...s,
+        assigned_groups: assigned,
+        assigned_groups_count: assigned,
+        codigo: s.code,
+        nombre: s.name,
+        creditos: s.credits
+      };
+    });
+
+    res.json(formatted);
   } catch (err) {
     res.status(500).json({ error: 'Error al consultar materias', details: err.message });
   }
