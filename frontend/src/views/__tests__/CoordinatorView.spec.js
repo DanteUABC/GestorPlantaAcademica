@@ -1,7 +1,8 @@
-import { mount, config } from '@vue/test-utils';
-import { describe, it, expect, vi } from 'vitest';
+import { mount, config, flushPromises } from '@vue/test-utils';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import CoordinatorView from '../CoordinatorView.vue';
 import { createPinia } from 'pinia';
+import api from '../../api/client';
 
 config.global.renderStubDefaultSlot = true;
 
@@ -29,11 +30,15 @@ vi.mock('../../api/client', () => ({
 
 const VAutocompleteStub = {
   name: 'v-autocomplete',
-  props: ['customFilter', 'items', 'label', 'placeholder', 'prependInnerIcon'],
-  template: '<div class="v-autocomplete-stub"></div>'
+  props: ['customFilter', 'items', 'label', 'placeholder', 'prependInnerIcon', 'modelValue'],
+  template: '<div class="v-autocomplete-stub"><slot name="append-inner"></slot><slot name="append"></slot></div>'
 };
 
-describe('CoordinatorView.vue - Búsqueda de Maestro y Materia al armar horario', () => {
+describe('CoordinatorView.vue - Búsqueda de Maestro, Materia y Alta Rápida Inline', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
   function getWrapper() {
     return mount(CoordinatorView, {
       global: {
@@ -47,13 +52,18 @@ describe('CoordinatorView.vue - Búsqueda de Maestro y Materia al armar horario'
           'v-row': true,
           'v-col': true,
           'v-icon': true,
-          'v-btn': true,
+          'v-btn': {
+            props: ['icon', 'color', 'size'],
+            template: '<button @click="$emit(\'click\', $event)"><slot /></button>'
+          },
           'v-alert': true,
           'v-tabs': true,
           'v-tab': true,
           'v-table': true,
           'v-dialog': true,
-          'v-form': true,
+          'v-form': {
+            template: '<form @submit.prevent="$emit(\'submit\', $event)"><slot /></form>'
+          },
           'v-autocomplete': VAutocompleteStub,
           'v-select': true,
           'v-text-field': true,
@@ -124,20 +134,97 @@ describe('CoordinatorView.vue - Búsqueda de Maestro y Materia al armar horario'
       raw: { name: 'Elena Salgado', email: 'elena.salgado@itc.edu', identifier: 'DOC-101' }
     };
 
-    // Coincidencia por nombre
     expect(customFilter('Elena Salgado', 'elena', itemSample)).toBe(true);
-    // Coincidencia por correo
     expect(customFilter('Elena Salgado', 'elena.salgado@itc', itemSample)).toBe(true);
-    // Coincidencia por nómina/identificador
     expect(customFilter('Elena Salgado', 'DOC-101', itemSample)).toBe(true);
-    // No coincidencia
     expect(customFilter('Elena Salgado', 'roberto', itemSample)).toBe(false);
 
-    // Coincidencia con acentos / sin acentos
     const maestroConAcento = {
       raw: { name: 'José Rodríguez', email: 'jose.rodriguez@itc.edu', identifier: 'DOC-103' }
     };
     expect(customFilter('José Rodríguez', 'jose', maestroConAcento)).toBe(true);
     expect(customFilter('José Rodríguez', 'rodriguez', maestroConAcento)).toBe(true);
+  });
+
+  describe('Alta Rápida de Materia (Flujo Inline sin romper estado padre)', () => {
+    it('inyecta el botón mdi-plus en el slot append-inner del selector de materias y abre el modal secundario sin cerrar ni resetear el formulario padre', async () => {
+      const wrapper = getWrapper();
+      await flushPromises();
+
+      // Abrir diálogo principal de horario y llenar campos previos
+      wrapper.vm.openCreateDialog();
+      wrapper.vm.newSchedule.teacher_id = 't-1';
+      wrapper.vm.newSchedule.classroom_id = 'c-1';
+      wrapper.vm.newSchedule.day_of_week = 'Miércoles';
+      wrapper.vm.newSchedule.start_time = '10:00';
+      wrapper.vm.newSchedule.end_time = '12:00';
+      wrapper.vm.newSchedule.group_code = '502';
+
+      expect(wrapper.vm.createDialog).toBe(true);
+      expect(wrapper.vm.isQuickSubjectModalOpen).toBe(false);
+
+      // Hacer clic en el botón '+' dentro del selector de materias
+      const quickBtn = wrapper.find('[data-testid="btn-quick-subject"]');
+      expect(quickBtn.exists()).toBe(true);
+      await quickBtn.trigger('click');
+
+      // El modal secundario se abre y el diálogo principal permanece abierto con sus datos intactos
+      expect(wrapper.vm.isQuickSubjectModalOpen).toBe(true);
+      expect(wrapper.vm.createDialog).toBe(true);
+      expect(wrapper.vm.newSchedule.teacher_id).toBe('t-1');
+      expect(wrapper.vm.newSchedule.day_of_week).toBe('Miércoles');
+      expect(wrapper.vm.newSchedule.group_code).toBe('502');
+    });
+
+    it('ejecuta POST /api/subjects, inyecta la nueva materia en subjects, la autoselecciona en newSchedule.subject_id y cierra solo el modal secundario', async () => {
+      const createdSubjectMock = {
+        id: 'sub-new-999',
+        tenant_id: 'tenant-itc',
+        code: 'IA-401',
+        name: 'Inteligencia Artificial',
+        credits: 6
+      };
+      api.post.mockResolvedValueOnce({ status: 201, data: createdSubjectMock });
+
+      const wrapper = getWrapper();
+      await flushPromises();
+
+      // Preparar estado del formulario padre
+      wrapper.vm.openCreateDialog();
+      wrapper.vm.newSchedule.teacher_id = 't-2';
+      wrapper.vm.newSchedule.day_of_week = 'Jueves';
+      wrapper.vm.openQuickSubjectModal();
+
+      // Llenar formulario de alta rápida de materia
+      wrapper.vm.quickSubjectForm.code = 'ia-401';
+      wrapper.vm.quickSubjectForm.name = 'Inteligencia Artificial';
+      wrapper.vm.quickSubjectForm.credits = 6;
+
+      // Procesar guardado rápido
+      const result = await wrapper.vm.submitQuickSubject();
+      await flushPromises();
+
+      // 1. Petición enviada a POST /subjects
+      expect(api.post).toHaveBeenCalledWith('/subjects', {
+        code: 'IA-401',
+        name: 'Inteligencia Artificial',
+        credits: 6
+      });
+      expect(result).toEqual(createdSubjectMock);
+
+      // 2. Objeto inyectado en el arreglo local de opciones (subjects)
+      expect(wrapper.vm.subjects).toContainEqual(createdSubjectMock);
+
+      // 3. Asignado automáticamente al v-model del selector en el formulario padre
+      expect(wrapper.vm.newSchedule.subject_id).toBe('sub-new-999');
+
+      // 4. Diálogo secundario cerrado y limpio, pero diálogo padre intacto
+      expect(wrapper.vm.isQuickSubjectModalOpen).toBe(false);
+      expect(wrapper.vm.quickSubjectForm.code).toBe('');
+      expect(wrapper.vm.quickSubjectForm.name).toBe('');
+      expect(wrapper.vm.createDialog).toBe(true);
+      expect(wrapper.vm.newSchedule.teacher_id).toBe('t-2');
+      expect(wrapper.vm.newSchedule.day_of_week).toBe('Jueves');
+    });
   });
 });

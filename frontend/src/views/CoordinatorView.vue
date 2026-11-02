@@ -317,7 +317,7 @@
           </v-alert>
 
           <v-form @submit.prevent="submitSchedule">
-            <!-- Materia (con barra de búsqueda) -->
+            <!-- Materia (con barra de búsqueda y botón de alta rápida) -->
             <v-autocomplete
               v-model="newSchedule.subject_id"
               :items="subjects"
@@ -334,7 +334,19 @@
               :custom-filter="filterSubjects"
               :rules="[v => !!v || 'Seleccione una materia']"
               no-data-text="No se encontraron materias que coincidan con la búsqueda"
+              data-testid="schedule-subject-autocomplete"
             >
+              <template #append-inner>
+                <v-btn
+                  icon="mdi-plus"
+                  size="small"
+                  color="success"
+                  variant="tonal"
+                  title="Alta Rápida de Materia"
+                  data-testid="btn-quick-subject"
+                  @click.stop.prevent="openQuickSubjectModal"
+                ></v-btn>
+              </template>
               <template #item="{ props, item }">
                 <v-list-item
                   v-bind="props"
@@ -577,6 +589,105 @@
       </v-card>
     </v-dialog>
 
+    <!-- DIALOG SECUNDARIO ANIDADO: ALTA RÁPIDA DE MATERIA -->
+    <v-dialog
+      v-model="isQuickSubjectModalOpen"
+      max-width="460"
+      persistent
+      data-testid="quick-subject-dialog"
+    >
+      <v-card rounded="lg" elevation="8">
+        <v-card-title class="bg-success text-white pa-4 d-flex justify-space-between align-center">
+          <span class="font-weight-bold d-flex align-center">
+            <v-icon icon="mdi-book-plus-outline" class="mr-2"></v-icon>
+            Alta Rápida de Materia
+          </span>
+          <v-btn
+            icon="mdi-close"
+            variant="text"
+            color="white"
+            density="compact"
+            data-testid="btn-close-quick-subject"
+            @click="closeQuickSubjectModal"
+          ></v-btn>
+        </v-card-title>
+
+        <v-card-text class="pa-5">
+          <v-alert
+            v-if="quickSubjectError"
+            type="error"
+            variant="tonal"
+            density="compact"
+            class="mb-4"
+            closable
+            data-testid="quick-subject-error"
+            @click:close="quickSubjectError = ''"
+          >
+            {{ quickSubjectError }}
+          </v-alert>
+
+          <v-form @submit.prevent="submitQuickSubject" data-testid="quick-subject-form">
+            <v-text-field
+              v-model="quickSubjectForm.code"
+              label="Clave / Código de la Materia *"
+              placeholder="Ej. MAT-101, INF-302"
+              variant="outlined"
+              density="comfortable"
+              prepend-inner-icon="mdi-barcode"
+              class="mb-3"
+              :rules="[v => !!(v && String(v).trim()) || 'El código es obligatorio']"
+              data-testid="input-quick-subject-code"
+            ></v-text-field>
+
+            <v-text-field
+              v-model="quickSubjectForm.name"
+              label="Nombre de la Materia *"
+              placeholder="Ej. Estructura de Datos"
+              variant="outlined"
+              density="comfortable"
+              prepend-inner-icon="mdi-book-open-variant"
+              class="mb-3"
+              :rules="[v => !!(v && String(v).trim()) || 'El nombre de la materia es obligatorio']"
+              data-testid="input-quick-subject-name"
+            ></v-text-field>
+
+            <v-text-field
+              v-model.number="quickSubjectForm.credits"
+              label="Créditos"
+              type="number"
+              min="1"
+              max="20"
+              variant="outlined"
+              density="comfortable"
+              prepend-inner-icon="mdi-star-outline"
+              class="mb-4"
+              data-testid="input-quick-subject-credits"
+            ></v-text-field>
+
+            <div class="d-flex justify-end ga-2">
+              <v-btn
+                variant="text"
+                class="text-none"
+                data-testid="btn-cancel-quick-subject"
+                @click="closeQuickSubjectModal"
+              >
+                Cancelar
+              </v-btn>
+              <v-btn
+                type="submit"
+                color="success"
+                class="text-none font-weight-bold"
+                :loading="savingQuickSubject"
+                data-testid="btn-save-quick-subject"
+              >
+                Guardar y Seleccionar
+              </v-btn>
+            </div>
+          </v-form>
+        </v-card-text>
+      </v-card>
+    </v-dialog>
+
     <!-- Global Snackbar -->
     <v-snackbar v-model="snackbar.show" :color="snackbar.color" timeout="3000">
       {{ snackbar.text }}
@@ -747,6 +858,76 @@ const timeSlots = [
 const createDialog = ref(false);
 const submitting = ref(false);
 const conflictError = ref('');
+
+// Estado exclusivo del Diálogo Secundario: Alta Rápida de Materia
+const isQuickSubjectModalOpen = ref(false);
+const savingQuickSubject = ref(false);
+const quickSubjectError = ref('');
+const quickSubjectForm = ref({
+  code: '',
+  name: '',
+  credits: 4
+});
+
+function openQuickSubjectModal() {
+  quickSubjectError.value = '';
+  quickSubjectForm.value = {
+    code: '',
+    name: '',
+    credits: 4
+  };
+  isQuickSubjectModalOpen.value = true;
+}
+
+function closeQuickSubjectModal() {
+  isQuickSubjectModalOpen.value = false;
+  quickSubjectError.value = '';
+  quickSubjectForm.value = {
+    code: '',
+    name: '',
+    credits: 4
+  };
+}
+
+async function submitQuickSubject() {
+  quickSubjectError.value = '';
+  const code = String(quickSubjectForm.value.code || '').trim().toUpperCase();
+  const name = String(quickSubjectForm.value.name || '').trim();
+  const credits = Number(quickSubjectForm.value.credits) > 0 ? Number(quickSubjectForm.value.credits) : 4;
+
+  if (!code || !name) {
+    quickSubjectError.value = 'El código y nombre de la materia son obligatorios.';
+    return null;
+  }
+
+  savingQuickSubject.value = true;
+  try {
+    const res = await api.post('/subjects', { code, name, credits });
+    const createdSubject = res.data;
+
+    // 1. Inyectar la nueva materia en la lista reactiva de opciones
+    subjects.value.push(createdSubject);
+
+    // 2. Asignar automáticamente el id de la nueva materia al v-model del selector del formulario padre
+    newSchedule.value.subject_id = createdSubject.id;
+
+    // 3. Cerrar el diálogo secundario y limpiar su formulario sin cerrar ni resetear el formulario padre
+    closeQuickSubjectModal();
+
+    snackbar.value = {
+      show: true,
+      text: `Materia "${createdSubject.name}" creada y seleccionada automáticamente`,
+      color: 'success'
+    };
+
+    return createdSubject;
+  } catch (err) {
+    quickSubjectError.value = err.response?.data?.error || 'Error al registrar la materia.';
+    return null;
+  } finally {
+    savingQuickSubject.value = false;
+  }
+}
 
 const newSchedule = ref({
   subject_id: '',
