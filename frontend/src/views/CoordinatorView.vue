@@ -106,6 +106,17 @@
         </v-tabs>
         <div class="d-flex align-center ga-3 my-2">
           <v-select
+            v-model="groupFilter"
+            :items="groupFilterOptions"
+            label="Filtrar por Grupo"
+            density="compact"
+            variant="outlined"
+            hide-details
+            style="min-width: 170px;"
+            prepend-inner-icon="mdi-account-group"
+            data-testid="select-group-filter"
+          ></v-select>
+          <v-select
             v-model="selectedTeacherFilter"
             :items="[{ id: '', name: 'Todos los Docentes' }, ...teachers]"
             item-title="name"
@@ -200,12 +211,9 @@
                     <div class="text-subtitle-2 font-weight-bold text-slate-800 mt-1">
                       {{ item.subject_name }}
                     </div>
-                    <div class="d-flex align-center gap-1 my-1 flex-wrap">
-                      <v-chip size="x-small" color="primary" variant="tonal" class="mr-1">
-                        Grupo {{ item.group_code || 'G1' }}
-                      </v-chip>
-                      <v-chip size="x-small" :color="item.session_type === 'Laboratorio' ? 'deep-purple' : 'info'" variant="outlined">
-                        {{ item.session_type || 'Clase Teórica' }}
+                    <div class="my-1">
+                      <v-chip size="x-small" color="primary" variant="tonal" class="font-weight-medium" data-testid="chip-group-session">
+                        {{ item.group_code || item.scheduleGroup || 'G1' }} - {{ item.session_type || item.scheduleSessionType || 'Clase Teórica' }}
                       </v-chip>
                     </div>
                     <div class="text-caption text-grey-darken-2">
@@ -250,10 +258,13 @@
                 </td>
                 <td>
                   <div class="font-weight-bold">{{ sch.subject_name }}</div>
+                  <div class="my-1">
+                    <v-chip size="x-small" color="primary" variant="tonal" class="font-weight-medium" data-testid="table-chip-group-session">
+                      {{ sch.group_code || sch.scheduleGroup || 'G1' }} - {{ sch.session_type || sch.scheduleSessionType || 'Clase Teórica' }}
+                    </v-chip>
+                  </div>
                   <div class="text-caption text-grey">
-                    {{ sch.subject_code }} &bull; {{ sch.subject_credits }} créditos &bull;
-                    <span class="font-weight-medium">Grupo {{ sch.group_code || 'G1' }}</span> &bull;
-                    <span>{{ sch.session_type || 'Clase Teórica' }}</span>
+                    {{ sch.subject_code }} &bull; {{ sch.subject_credits }} créditos
                   </div>
                 </td>
                 <td>
@@ -451,6 +462,38 @@
               </div>
             </div>
 
+            <!-- Grupo y Tipo de Sesión (Task 6.3) -->
+            <v-row class="mb-1">
+              <v-col cols="12" sm="6">
+                <v-text-field
+                  v-model="newSchedule.group_code"
+                  label="Grupo *"
+                  placeholder="ej. G1, 301, MAT-A"
+                  variant="outlined"
+                  density="comfortable"
+                  prepend-inner-icon="mdi-account-group"
+                  hint="Por defecto: G1"
+                  persistent-hint
+                  :rules="[v => !!(v && String(v).trim()) || 'El código de grupo es requerido']"
+                  data-testid="input-schedule-group"
+                ></v-text-field>
+              </v-col>
+              <v-col cols="12" sm="6">
+                <v-select
+                  v-model="newSchedule.session_type"
+                  :items="['Clase Teórica', 'Laboratorio', 'Taller']"
+                  label="Tipo de Sesión *"
+                  variant="outlined"
+                  density="comfortable"
+                  prepend-inner-icon="mdi-format-list-bulleted-type"
+                  :rules="[v => !!v || 'Seleccione el tipo de sesión']"
+                  :error="isLabMismatch"
+                  :error-messages="isLabMismatch ? ['Requiere aula de tipo Laboratorio'] : []"
+                  data-testid="select-session-type"
+                ></v-select>
+              </v-col>
+            </v-row>
+
             <!-- Aula Física (con botón de alta rápida) -->
             <v-select
               v-model="newSchedule.classroom_id"
@@ -492,35 +535,6 @@
                 <span>{{ formatClassroomOption(item.raw) }}</span>
               </template>
             </v-select>
-
-            <!-- Tipo de Sesión y Código de Grupo -->
-            <v-row class="mb-1">
-              <v-col cols="12" sm="6">
-                <v-select
-                  v-model="newSchedule.session_type"
-                  :items="['Clase Teórica', 'Laboratorio', 'Taller']"
-                  label="Tipo de Sesión *"
-                  variant="outlined"
-                  density="comfortable"
-                  prepend-inner-icon="mdi-format-list-bulleted-type"
-                  :rules="[v => !!v || 'Seleccione el tipo de sesión']"
-                  :error="isLabMismatch"
-                  :error-messages="isLabMismatch ? ['Requiere aula de tipo Laboratorio'] : []"
-                ></v-select>
-              </v-col>
-              <v-col cols="12" sm="6">
-                <v-text-field
-                  v-model="newSchedule.group_code"
-                  label="Código de Grupo"
-                  placeholder="ej. 501, G1"
-                  variant="outlined"
-                  density="comfortable"
-                  prepend-inner-icon="mdi-account-group"
-                  hint="Por defecto: G1"
-                  persistent-hint
-                ></v-text-field>
-              </v-col>
-            </v-row>
 
             <!-- Alerta visual de incoherencia entre tipo de sesión y tipo de aula -->
             <v-alert
@@ -850,7 +864,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed, onMounted, watch } from 'vue';
 import { useAuthStore } from '../stores/authStore';
 import api from '../api/client';
 import ExcelScheduleUploader from '../components/ExcelScheduleUploader.vue';
@@ -889,10 +903,25 @@ const formatClassroomOption = (cr) => {
 };
 
 const classroomOptions = computed(() => {
-  return classrooms.value.map(cr => ({
+  const currentSession = newSchedule.value.session_type || newSchedule.value.scheduleSessionType || '';
+  const isLab = /^laboratorio$/i.test(currentSession);
+  const list = classrooms.value.map(cr => ({
     ...cr,
     displayName: formatClassroomOption(cr)
   }));
+
+  if (isLab) {
+    // Si 'scheduleSessionType' es 'Laboratorio', resalta primero las aulas type === 'Laboratorio'
+    return list.slice().sort((a, b) => {
+      const aLab = /laboratorio/i.test(a.type || '');
+      const bLab = /laboratorio/i.test(b.type || '');
+      if (aLab && !bLab) return -1;
+      if (!aLab && bLab) return 1;
+      return 0;
+    });
+  }
+
+  return list;
 });
 
 const selectedClassroom = computed(() => {
@@ -1004,6 +1033,7 @@ const teacherMeterText = computed(() => {
 const daysOfWeek = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
 
 const selectedTeacherFilter = ref('');
+const groupFilter = ref('Todos');
 
 const selectedTeacherName = computed(() => {
   if (!selectedTeacherFilter.value) return '';
@@ -1011,9 +1041,26 @@ const selectedTeacherName = computed(() => {
   return t ? t.name : '';
 });
 
+const availableGroups = computed(() => {
+  const groups = new Set();
+  schedules.value.forEach(s => {
+    const g = s.group_code || s.scheduleGroup;
+    if (g && String(g).trim()) groups.add(String(g).trim());
+  });
+  return Array.from(groups).sort();
+});
+
+const groupFilterOptions = computed(() => {
+  return ['Todos', ...availableGroups.value];
+});
+
 const filteredSchedules = computed(() => {
-  if (!selectedTeacherFilter.value) return schedules.value;
-  return schedules.value.filter(s => s.teacher_id === selectedTeacherFilter.value);
+  return schedules.value.filter(s => {
+    const matchesTeacher = !selectedTeacherFilter.value || s.teacher_id === selectedTeacherFilter.value;
+    const itemGroup = s.group_code || s.scheduleGroup || 'G1';
+    const matchesGroup = !groupFilter.value || groupFilter.value === 'Todos' || itemGroup === groupFilter.value;
+    return matchesTeacher && matchesGroup;
+  });
 });
 
 function imprimirHorario() {
@@ -1218,8 +1265,43 @@ const newSchedule = ref({
   end_time: '10:00',
   max_students: 30,
   group_code: 'G1',
-  session_type: 'Clase Teórica'
+  session_type: 'Clase Teórica',
+  scheduleGroup: 'G1',
+  scheduleSessionType: 'Clase Teórica'
 });
+
+watch(
+  () => newSchedule.value.group_code,
+  (val) => {
+    if (newSchedule.value.scheduleGroup !== val) {
+      newSchedule.value.scheduleGroup = val;
+    }
+  }
+);
+watch(
+  () => newSchedule.value.scheduleGroup,
+  (val) => {
+    if (newSchedule.value.group_code !== val) {
+      newSchedule.value.group_code = val;
+    }
+  }
+);
+watch(
+  () => newSchedule.value.session_type,
+  (val) => {
+    if (newSchedule.value.scheduleSessionType !== val) {
+      newSchedule.value.scheduleSessionType = val;
+    }
+  }
+);
+watch(
+  () => newSchedule.value.scheduleSessionType,
+  (val) => {
+    if (newSchedule.value.session_type !== val) {
+      newSchedule.value.session_type = val;
+    }
+  }
+);
 
 const snackbar = ref({
   show: false,
@@ -1290,7 +1372,9 @@ function openCreateDialog() {
     end_time: '10:00',
     max_students: classrooms.value.length > 0 ? classrooms.value[0].capacity : 30,
     group_code: 'G1',
-    session_type: 'Clase Teórica'
+    session_type: 'Clase Teórica',
+    scheduleGroup: 'G1',
+    scheduleSessionType: 'Clase Teórica'
   };
   createDialog.value = true;
 }
@@ -1307,7 +1391,14 @@ async function submitSchedule() {
   conflictError.value = '';
   submitting.value = true;
   try {
-    await api.post('/schedules', newSchedule.value);
+    const payload = {
+      ...newSchedule.value,
+      group_code: newSchedule.value.group_code || newSchedule.value.scheduleGroup || 'G1',
+      session_type: newSchedule.value.session_type || newSchedule.value.scheduleSessionType || 'Clase Teórica',
+      scheduleGroup: newSchedule.value.group_code || newSchedule.value.scheduleGroup || 'G1',
+      scheduleSessionType: newSchedule.value.session_type || newSchedule.value.scheduleSessionType || 'Clase Teórica'
+    };
+    await api.post('/schedules', payload);
     snackbar.value = {
       show: true,
       text: '¡Horario creado exitosamente sin conflictos!',
