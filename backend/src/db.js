@@ -5,6 +5,7 @@ const { migrateExistingUserIdentifiers } = require('./utils/identifierHelper');
 const { migrateClassroomsType } = require('./utils/classroomMigration');
 const { migrateSchedulesGroupAndSession } = require('./utils/schedulesMigration');
 const { migrateUserSchema } = require('./utils/userSchemaMigration');
+const { migrateScheduleSubstitutions } = require('./utils/scheduleSubstitutionsMigration');
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL || 'postgresql://postgres:postgres@localhost:5432/gestor_planta'
@@ -142,6 +143,22 @@ async function initDatabase() {
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
 
+    -- Schedule Substitutions (Reasignación y trazabilidad de suplencias)
+    CREATE TABLE IF NOT EXISTS schedule_substitutions (
+      id VARCHAR(50) PRIMARY KEY,
+      tenant_id VARCHAR(50) NOT NULL,
+      schedule_id VARCHAR(50) NOT NULL,
+      original_teacher_id VARCHAR(50) NOT NULL,
+      substitute_teacher_id VARCHAR(50) NOT NULL,
+      reason VARCHAR(255),
+      effective_date DATE,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE,
+      FOREIGN KEY (schedule_id) REFERENCES schedules(id) ON DELETE CASCADE,
+      FOREIGN KEY (original_teacher_id) REFERENCES users(id) ON DELETE CASCADE,
+      FOREIGN KEY (substitute_teacher_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+
     -- Performance indexes for tenant-isolated queries
     CREATE INDEX IF NOT EXISTS idx_users_tenant ON users(tenant_id);
     CREATE INDEX IF NOT EXISTS idx_subjects_tenant ON subjects(tenant_id);
@@ -149,6 +166,8 @@ async function initDatabase() {
     CREATE INDEX IF NOT EXISTS idx_schedules_tenant ON schedules(tenant_id);
     CREATE INDEX IF NOT EXISTS idx_horarios_tenant ON horarios(tenant_id);
     CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
+    CREATE INDEX IF NOT EXISTS idx_substitutions_tenant_schedule ON schedule_substitutions(tenant_id, schedule_id);
+    CREATE INDEX IF NOT EXISTS idx_substitutions_tenant_substitute ON schedule_substitutions(tenant_id, substitute_teacher_id);
 
     -- Vistas de compatibilidad inicial
     CREATE OR REPLACE VIEW aulas AS SELECT * FROM classrooms;
@@ -256,6 +275,13 @@ async function initDatabase() {
     await migrateSchedulesGroupAndSession(pool);
   } catch (schedMigErr) {
     console.warn('Nota en migración de schedules group_code / session_type:', schedMigErr.message);
+  }
+
+  // Migración DDL para schedule_substitutions (Épica 3: Trazabilidad y suplencias)
+  try {
+    await migrateScheduleSubstitutions(pool);
+  } catch (substMigErr) {
+    console.warn('Nota en migración de schedule_substitutions:', substMigErr.message);
   }
 
   await seedInitialData();

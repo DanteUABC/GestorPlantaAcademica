@@ -85,6 +85,8 @@ app.get('/api/teachers', catalogController.getTeachers);
 // Módulo Coordinador: Armado de Horarios
 app.post('/api/schedules', requireRole(['Coordinador', 'Administrador']), scheduleController.createSchedule);
 app.get('/api/schedules/coordinator', requireRole(['Coordinador', 'Administrador']), scheduleController.getCoordinatorSchedules);
+app.get('/api/schedules/:id/available-substitutes', requireRole(['Coordinador', 'Administrador']), scheduleController.getAvailableSubstitutes);
+app.post('/api/schedules/:id/transfer', requireRole(['Coordinador', 'Administrador']), scheduleController.transferSchedule);
 app.delete('/api/schedules/:id', requireRole(['Coordinador', 'Administrador']), scheduleController.deleteSchedule);
 app.post(
   '/api/schedules/upload-excel',
