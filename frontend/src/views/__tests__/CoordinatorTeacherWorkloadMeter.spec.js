@@ -77,7 +77,9 @@ describe('CoordinatorView.vue - Medidor Visual de Carga Laboral del Docente', ()
           'v-list-item': true,
           'v-divider': true,
           'v-progress-linear': VProgressLinearStub,
-          'ExcelScheduleUploader': true
+          'v-combobox': true,
+          'ExcelScheduleUploader': true,
+          'ClassroomCatalogView': true
         }
       }
     });

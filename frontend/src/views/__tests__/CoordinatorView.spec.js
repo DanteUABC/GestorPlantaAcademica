@@ -19,7 +19,7 @@ vi.mock('../../api/client', () => ({
         { id: 't-2', name: 'Carlos Vega', email: 'carlos@itc.edu', identifier: 'DOC-102' }
       ] });
       if (url.includes('/classrooms')) return Promise.resolve({ data: [
-        { id: 'c-1', name: 'Aula A-101', building: 'Edificio A', capacity: 30 }
+        { id: 'c-1', name: 'Aula A-101', building: 'Edificio A', capacity: 30, type: 'Aula Teórica' }
       ] });
       return Promise.resolve({ data: [] });
     }),
@@ -34,7 +34,13 @@ const VAutocompleteStub = {
   template: '<div class="v-autocomplete-stub"><slot name="append-inner"></slot><slot name="append"></slot></div>'
 };
 
-describe('CoordinatorView.vue - Búsqueda de Maestro, Materia y Alta Rápida Inline', () => {
+const VSelectStub = {
+  name: 'v-select',
+  props: ['items', 'itemTitle', 'itemValue', 'label', 'modelValue'],
+  template: '<div class="v-select-stub"><slot name="append-inner"></slot><slot name="append"></slot></div>'
+};
+
+describe('CoordinatorView.vue - Búsqueda de Maestro, Materia y Altas Rápidas Inline', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
@@ -65,7 +71,8 @@ describe('CoordinatorView.vue - Búsqueda de Maestro, Materia y Alta Rápida Inl
             template: '<form @submit.prevent="$emit(\'submit\', $event)"><slot /></form>'
           },
           'v-autocomplete': VAutocompleteStub,
-          'v-select': true,
+          'v-select': VSelectStub,
+          'v-combobox': true,
           'v-text-field': true,
           'v-snackbar': true,
           'v-chip': true,
@@ -114,12 +121,9 @@ describe('CoordinatorView.vue - Búsqueda de Maestro, Materia y Alta Rápida Inl
       raw: { name: 'Cálculo Diferencial', code: 'MAT-101', credits: 5 }
     };
 
-    // Coincidencia por nombre (con o sin acentos)
     expect(customFilter('Cálculo Diferencial', 'cálculo', itemSample)).toBe(true);
     expect(customFilter('Cálculo Diferencial', 'calculo', itemSample)).toBe(true);
-    // Coincidencia por código de materia
     expect(customFilter('Cálculo Diferencial', 'MAT-101', itemSample)).toBe(true);
-    // No coincidencia
     expect(customFilter('Cálculo Diferencial', 'química', itemSample)).toBe(false);
   });
 
@@ -151,7 +155,6 @@ describe('CoordinatorView.vue - Búsqueda de Maestro, Materia y Alta Rápida Inl
       const wrapper = getWrapper();
       await flushPromises();
 
-      // Abrir diálogo principal de horario y llenar campos previos
       wrapper.vm.openCreateDialog();
       wrapper.vm.newSchedule.teacher_id = 't-1';
       wrapper.vm.newSchedule.classroom_id = 'c-1';
@@ -163,12 +166,10 @@ describe('CoordinatorView.vue - Búsqueda de Maestro, Materia y Alta Rápida Inl
       expect(wrapper.vm.createDialog).toBe(true);
       expect(wrapper.vm.isQuickSubjectModalOpen).toBe(false);
 
-      // Hacer clic en el botón '+' dentro del selector de materias
       const quickBtn = wrapper.find('[data-testid="btn-quick-subject"]');
       expect(quickBtn.exists()).toBe(true);
       await quickBtn.trigger('click');
 
-      // El modal secundario se abre y el diálogo principal permanece abierto con sus datos intactos
       expect(wrapper.vm.isQuickSubjectModalOpen).toBe(true);
       expect(wrapper.vm.createDialog).toBe(true);
       expect(wrapper.vm.newSchedule.teacher_id).toBe('t-1');
@@ -189,42 +190,139 @@ describe('CoordinatorView.vue - Búsqueda de Maestro, Materia y Alta Rápida Inl
       const wrapper = getWrapper();
       await flushPromises();
 
-      // Preparar estado del formulario padre
       wrapper.vm.openCreateDialog();
       wrapper.vm.newSchedule.teacher_id = 't-2';
       wrapper.vm.newSchedule.day_of_week = 'Jueves';
       wrapper.vm.openQuickSubjectModal();
 
-      // Llenar formulario de alta rápida de materia
       wrapper.vm.quickSubjectForm.code = 'ia-401';
       wrapper.vm.quickSubjectForm.name = 'Inteligencia Artificial';
       wrapper.vm.quickSubjectForm.credits = 6;
 
-      // Procesar guardado rápido
       const result = await wrapper.vm.submitQuickSubject();
       await flushPromises();
 
-      // 1. Petición enviada a POST /subjects
       expect(api.post).toHaveBeenCalledWith('/subjects', {
         code: 'IA-401',
         name: 'Inteligencia Artificial',
         credits: 6
       });
       expect(result).toEqual(createdSubjectMock);
-
-      // 2. Objeto inyectado en el arreglo local de opciones (subjects)
       expect(wrapper.vm.subjects).toContainEqual(createdSubjectMock);
-
-      // 3. Asignado automáticamente al v-model del selector en el formulario padre
       expect(wrapper.vm.newSchedule.subject_id).toBe('sub-new-999');
-
-      // 4. Diálogo secundario cerrado y limpio, pero diálogo padre intacto
       expect(wrapper.vm.isQuickSubjectModalOpen).toBe(false);
       expect(wrapper.vm.quickSubjectForm.code).toBe('');
       expect(wrapper.vm.quickSubjectForm.name).toBe('');
       expect(wrapper.vm.createDialog).toBe(true);
       expect(wrapper.vm.newSchedule.teacher_id).toBe('t-2');
       expect(wrapper.vm.newSchedule.day_of_week).toBe('Jueves');
+    });
+  });
+
+  describe('Alta Rápida de Aula (Flujo Inline con sobreescritura reactiva de cupo)', () => {
+    it('inyecta el botón mdi-plus en el slot append-inner del selector de aulas y abre isQuickClassroomModalOpen preservando el estado del horario', async () => {
+      const wrapper = getWrapper();
+      await flushPromises();
+
+      wrapper.vm.openCreateDialog();
+      wrapper.vm.newSchedule.subject_id = 'sub-1';
+      wrapper.vm.newSchedule.teacher_id = 't-1';
+      wrapper.vm.newSchedule.day_of_week = 'Viernes';
+      wrapper.vm.newSchedule.group_code = '601';
+
+      expect(wrapper.vm.createDialog).toBe(true);
+      expect(wrapper.vm.isQuickClassroomModalOpen).toBe(false);
+
+      const quickClassroomBtn = wrapper.find('[data-testid="btn-quick-classroom"]');
+      expect(quickClassroomBtn.exists()).toBe(true);
+      await quickClassroomBtn.trigger('click');
+
+      expect(wrapper.vm.isQuickClassroomModalOpen).toBe(true);
+      expect(wrapper.vm.createDialog).toBe(true);
+      expect(wrapper.vm.newSchedule.subject_id).toBe('sub-1');
+      expect(wrapper.vm.newSchedule.teacher_id).toBe('t-1');
+      expect(wrapper.vm.newSchedule.day_of_week).toBe('Viernes');
+      expect(wrapper.vm.newSchedule.group_code).toBe('601');
+    });
+
+    it('valida estrictamente que la capacidad sea > 0 en el alta rápida de aula', async () => {
+      const wrapper = getWrapper();
+      await flushPromises();
+
+      wrapper.vm.openCreateDialog();
+      wrapper.vm.openQuickClassroomModal();
+
+      wrapper.vm.quickClassroomForm = {
+        name: 'Lab Inválido',
+        building: 'Edificio D',
+        capacity: 0,
+        type: 'Laboratorio de Cómputo'
+      };
+
+      const res = await wrapper.vm.submitQuickClassroom();
+      expect(res).toBeNull();
+      expect(wrapper.vm.quickClassroomError).toBe('Capacidad debe ser mayor a 0');
+      expect(api.post).not.toHaveBeenCalled();
+    });
+
+    it('ejecuta POST /api/classrooms, inyecta la nueva aula, la selecciona y sobreescribe reactivamente el cupo sugerido (max_students) del horario', async () => {
+      const createdClassroomMock = {
+        id: 'cr-quick-777',
+        tenant_id: 'tenant-itc',
+        name: 'Auditorio Magna Sur',
+        building: 'Edificio Sur',
+        capacity: 85,
+        type: 'Auditorio'
+      };
+      api.post.mockResolvedValueOnce({ status: 201, data: createdClassroomMock });
+
+      const wrapper = getWrapper();
+      await flushPromises();
+
+      // Abrir diálogo padre (cupo inicial 30 del Aula A-101)
+      wrapper.vm.openCreateDialog();
+      wrapper.vm.newSchedule.subject_id = 'sub-2';
+      wrapper.vm.newSchedule.teacher_id = 't-1';
+      expect(wrapper.vm.newSchedule.max_students).toBe(30);
+
+      // Abrir modal de alta rápida de aula y llenar datos con capacidad 85
+      wrapper.vm.openQuickClassroomModal();
+      wrapper.vm.quickClassroomForm = {
+        name: 'Auditorio Magna Sur',
+        building: 'Edificio Sur',
+        capacity: 85,
+        type: 'Auditorio'
+      };
+
+      const result = await wrapper.vm.submitQuickClassroom();
+      await flushPromises();
+
+      // 1. Petición enviada a POST /classrooms
+      expect(api.post).toHaveBeenCalledWith('/classrooms', {
+        name: 'Auditorio Magna Sur',
+        building: 'Edificio Sur',
+        capacity: 85,
+        type: 'Auditorio'
+      });
+      expect(result).toEqual(createdClassroomMock);
+
+      // 2. Nueva aula inyectada en el arreglo local classrooms
+      expect(wrapper.vm.classrooms).toContainEqual(createdClassroomMock);
+
+      // 3. Nueva aula autoseleccionada en el formulario principal
+      expect(wrapper.vm.newSchedule.classroom_id).toBe('cr-quick-777');
+
+      // 4. El cupo sugerido del horario (max_students) se sobreescribe reactivamente con el aforo de la nueva aula (85)
+      expect(wrapper.vm.newSchedule.max_students).toBe(85);
+
+      // 5. Modal secundario cerrado y reseteado; modal principal intacto
+      expect(wrapper.vm.isQuickClassroomModalOpen).toBe(false);
+      expect(wrapper.vm.quickClassroomForm.name).toBe('');
+      expect(wrapper.vm.quickClassroomForm.building).toBe('');
+      expect(wrapper.vm.quickClassroomForm.capacity).toBe(30);
+      expect(wrapper.vm.createDialog).toBe(true);
+      expect(wrapper.vm.newSchedule.subject_id).toBe('sub-2');
+      expect(wrapper.vm.newSchedule.teacher_id).toBe('t-1');
     });
   });
 });

@@ -429,7 +429,7 @@
               </div>
             </div>
 
-            <!-- Aula Física -->
+            <!-- Aula Física (con botón de alta rápida) -->
             <v-select
               v-model="newSchedule.classroom_id"
               :items="classroomOptions"
@@ -441,7 +441,20 @@
               prepend-inner-icon="mdi-door"
               class="mb-2"
               :rules="[v => !!v || 'Seleccione un aula']"
+              data-testid="schedule-classroom-select"
+              @update:model-value="onClassroomChange"
             >
+              <template #append-inner>
+                <v-btn
+                  icon="mdi-plus"
+                  size="small"
+                  color="success"
+                  variant="tonal"
+                  title="Alta Rápida de Aula"
+                  data-testid="btn-quick-classroom"
+                  @click.stop.prevent="openQuickClassroomModal"
+                ></v-btn>
+              </template>
               <template #item="{ props, item }">
                 <v-list-item
                   v-bind="props"
@@ -679,6 +692,118 @@
                 class="text-none font-weight-bold"
                 :loading="savingQuickSubject"
                 data-testid="btn-save-quick-subject"
+              >
+                Guardar y Seleccionar
+              </v-btn>
+            </div>
+          </v-form>
+        </v-card-text>
+      </v-card>
+    </v-dialog>
+
+    <!-- DIALOG SECUNDARIO ANIDADO: ALTA RÁPIDA DE AULA -->
+    <v-dialog
+      v-model="isQuickClassroomModalOpen"
+      max-width="500"
+      persistent
+      data-testid="quick-classroom-dialog"
+    >
+      <v-card rounded="lg" elevation="8">
+        <v-card-title class="bg-success text-white pa-4 d-flex justify-space-between align-center">
+          <span class="font-weight-bold d-flex align-center">
+            <v-icon icon="mdi-office-building-plus-outline" class="mr-2"></v-icon>
+            Alta Rápida de Aula
+          </span>
+          <v-btn
+            icon="mdi-close"
+            variant="text"
+            color="white"
+            density="compact"
+            data-testid="btn-close-quick-classroom"
+            @click="closeQuickClassroomModal"
+          ></v-btn>
+        </v-card-title>
+
+        <v-card-text class="pa-5">
+          <v-alert
+            v-if="quickClassroomError"
+            type="error"
+            variant="tonal"
+            density="compact"
+            class="mb-4"
+            closable
+            data-testid="quick-classroom-error"
+            @click:close="quickClassroomError = ''"
+          >
+            {{ quickClassroomError }}
+          </v-alert>
+
+          <v-form @submit.prevent="submitQuickClassroom" data-testid="quick-classroom-form">
+            <v-text-field
+              v-model="quickClassroomForm.name"
+              label="Nombre del Espacio *"
+              placeholder="Ej. Aula B-202, Lab Redes..."
+              variant="outlined"
+              density="comfortable"
+              prepend-inner-icon="mdi-door"
+              class="mb-3"
+              :rules="[v => !!(v && String(v).trim()) || 'El nombre del espacio es obligatorio']"
+              data-testid="input-quick-classroom-name"
+            ></v-text-field>
+
+            <v-combobox
+              v-model="quickClassroomForm.building"
+              :items="existingClassroomBuildings"
+              label="Edificio / Zona *"
+              placeholder="Selecciona o escribe un edificio..."
+              variant="outlined"
+              density="comfortable"
+              prepend-inner-icon="mdi-office-building"
+              class="mb-3"
+              :rules="[v => !!(v && String(v).trim()) || 'El edificio o zona es obligatorio']"
+              data-testid="input-quick-classroom-building"
+            ></v-combobox>
+
+            <v-text-field
+              v-model.number="quickClassroomForm.capacity"
+              label="Capacidad *"
+              type="number"
+              min="1"
+              variant="outlined"
+              density="comfortable"
+              prepend-inner-icon="mdi-account-group"
+              class="mb-3"
+              :rules="quickClassroomCapacityRules"
+              data-testid="input-quick-classroom-capacity"
+            ></v-text-field>
+
+            <v-select
+              v-model="quickClassroomForm.type"
+              :items="quickClassroomSpaceTypes"
+              label="Tipo de Instalación *"
+              variant="outlined"
+              density="comfortable"
+              prepend-inner-icon="mdi-domain"
+              class="mb-4"
+              :rules="[v => !!(v && String(v).trim()) || 'Seleccione un tipo de instalación']"
+              data-testid="input-quick-classroom-type"
+            ></v-select>
+
+            <div class="d-flex justify-end ga-2">
+              <v-btn
+                variant="text"
+                class="text-none"
+                data-testid="btn-cancel-quick-classroom"
+                @click="closeQuickClassroomModal"
+              >
+                Cancelar
+              </v-btn>
+              <v-btn
+                type="submit"
+                color="success"
+                class="text-none font-weight-bold"
+                :loading="savingQuickClassroom"
+                data-testid="btn-save-quick-classroom"
               >
                 Guardar y Seleccionar
               </v-btn>
@@ -926,6 +1051,114 @@ async function submitQuickSubject() {
     return null;
   } finally {
     savingQuickSubject.value = false;
+  }
+}
+
+// Estado exclusivo del Diálogo Secundario: Alta Rápida de Aula
+const isQuickClassroomModalOpen = ref(false);
+const savingQuickClassroom = ref(false);
+const quickClassroomError = ref('');
+const quickClassroomSpaceTypes = [
+  'Aula Teórica',
+  'Laboratorio de Cómputo',
+  'Taller',
+  'Auditorio'
+];
+const quickClassroomCapacityRules = [
+  v => v > 0 || 'Capacidad debe ser mayor a 0'
+];
+const quickClassroomForm = ref({
+  name: '',
+  building: '',
+  capacity: 30,
+  type: 'Aula Teórica'
+});
+
+const existingClassroomBuildings = computed(() => {
+  const set = new Set(
+    classrooms.value
+      .map(c => c.building)
+      .filter(b => b && String(b).trim())
+  );
+  return Array.from(set).sort();
+});
+
+function onClassroomChange(selectedId) {
+  const found = classrooms.value.find(c => c.id === selectedId);
+  if (found && found.capacity > 0) {
+    newSchedule.value.max_students = Number(found.capacity);
+  }
+}
+
+function openQuickClassroomModal() {
+  quickClassroomError.value = '';
+  quickClassroomForm.value = {
+    name: '',
+    building: '',
+    capacity: 30,
+    type: 'Aula Teórica'
+  };
+  isQuickClassroomModalOpen.value = true;
+}
+
+function closeQuickClassroomModal() {
+  isQuickClassroomModalOpen.value = false;
+  quickClassroomError.value = '';
+  quickClassroomForm.value = {
+    name: '',
+    building: '',
+    capacity: 30,
+    type: 'Aula Teórica'
+  };
+}
+
+async function submitQuickClassroom() {
+  quickClassroomError.value = '';
+  const name = String(quickClassroomForm.value.name || '').trim();
+  const building = String(quickClassroomForm.value.building || '').trim();
+  const capacity = Number(quickClassroomForm.value.capacity);
+  const type = String(quickClassroomForm.value.type || '').trim();
+
+  const capacityCheck = quickClassroomCapacityRules[0](capacity);
+  if (capacityCheck !== true) {
+    quickClassroomError.value = capacityCheck;
+    return null;
+  }
+
+  if (!name || !building || !type) {
+    quickClassroomError.value = 'Todos los campos del aula son obligatorios.';
+    return null;
+  }
+
+  savingQuickClassroom.value = true;
+  try {
+    const res = await api.post('/classrooms', { name, building, capacity, type });
+    const createdClassroom = res.data;
+
+    // 1. Inyectar la nueva aula en el arreglo local de opciones
+    classrooms.value.push(createdClassroom);
+
+    // 2. Asignar automáticamente el identificador de la nueva aula al modelo del selector principal
+    newSchedule.value.classroom_id = createdClassroom.id;
+
+    // 3. Actualizar reactivamente el campo de cupo (max_students) con el aforo del aula recién creada
+    newSchedule.value.max_students = Number(createdClassroom.capacity);
+
+    // 4. Cerrar el modal secundario y resetear sus campos
+    closeQuickClassroomModal();
+
+    snackbar.value = {
+      show: true,
+      text: `Aula "${createdClassroom.name}" creada y seleccionada automáticamente`,
+      color: 'success'
+    };
+
+    return createdClassroom;
+  } catch (err) {
+    quickClassroomError.value = err.response?.data?.error || 'Error al registrar el aula.';
+    return null;
+  } finally {
+    savingQuickClassroom.value = false;
   }
 }
 
