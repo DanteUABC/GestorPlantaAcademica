@@ -10,6 +10,7 @@ const passport = require('./config/passport');
 
 const authController = require('./controllers/authController');
 const catalogController = require('./controllers/catalogController');
+const classroomController = require('./controllers/classroomController');
 const scheduleController = require('./controllers/scheduleController');
 const analyticsRoutes = require('./routes/analyticsRoutes');
 
@@ -74,10 +75,10 @@ app.get('/api/auth/me', authController.getMe);
 app.get('/api/subjects', catalogController.getSubjects);
 app.post('/api/subjects', requireRole(['Coordinador', 'Administrador']), catalogController.createSubject);
 
-app.get('/api/classrooms', catalogController.getClassrooms);
-app.post('/api/classrooms', requireRole(['Coordinador', 'Administrador']), catalogController.createClassroom);
-app.put('/api/classrooms/:id', requireRole(['Coordinador', 'Administrador']), catalogController.updateClassroom);
-app.delete('/api/classrooms/:id', requireRole(['Coordinador', 'Administrador']), catalogController.deleteClassroom);
+app.get('/api/classrooms', classroomController.getClassrooms);
+app.post('/api/classrooms', requireRole(['Coordinador', 'Administrador']), classroomController.createClassroom);
+app.put('/api/classrooms/:id', requireRole(['Coordinador', 'Administrador']), classroomController.updateClassroom);
+app.delete('/api/classrooms/:id', requireRole(['Coordinador', 'Administrador']), classroomController.deleteClassroom);
 
 app.get('/api/teachers', catalogController.getTeachers);
 

@@ -62,11 +62,20 @@ describe('CoordinatorView.vue - Búsqueda de Maestro y Materia al armar horario'
           'v-list-item': true,
           'v-divider': true,
           'v-progress-linear': true,
-          'ExcelScheduleUploader': true
+          'ExcelScheduleUploader': true,
+          'ClassroomCatalogView': true
         }
       }
     });
   }
+
+  it('debe incluir la pestaña "Catálogo de Aulas" enlazada a la nueva vista (/classrooms)', () => {
+    const wrapper = getWrapper();
+    const catalogTab = wrapper.find('[data-testid="tab-classroom-catalog"]');
+    expect(catalogTab.exists()).toBe(true);
+    expect(catalogTab.text()).toContain('Catálogo de Aulas');
+    expect(catalogTab.attributes('to')).toBe('/classrooms');
+  });
 
   it('debe contener componentes v-autocomplete para la búsqueda de Materia y Maestro con sus placeholders e iconos de lupa', () => {
     const wrapper = getWrapper();

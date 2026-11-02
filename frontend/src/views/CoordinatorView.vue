@@ -101,6 +101,7 @@
           <v-tab value="grid" prepend-icon="mdi-view-week">Parrilla Semanal de Horarios</v-tab>
           <v-tab value="list" prepend-icon="mdi-format-list-bulleted">Listado Detallado de Grupos</v-tab>
           <v-tab value="upload" prepend-icon="mdi-file-excel-box">Carga Masiva Excel</v-tab>
+          <v-tab value="classrooms" to="/classrooms" prepend-icon="mdi-office-building-cog-outline" data-testid="tab-classroom-catalog">Catálogo de Aulas</v-tab>
           <v-tab to="/analytics" prepend-icon="mdi-chart-box-outline">Analítica Operativa</v-tab>
         </v-tabs>
         <div class="d-flex align-center ga-3 my-2">
@@ -281,6 +282,10 @@
         <!-- TAB 3: CARGA MASIVA EXCEL -->
         <div v-if="viewTab === 'upload'" class="pa-2">
           <ExcelScheduleUploader @upload-success="handleUploadSuccess" />
+        </div>
+        <!-- TAB 4: CATÁLOGO DE AULAS -->
+        <div v-if="viewTab === 'classrooms'" class="pa-2">
+          <ClassroomCatalogView @updated="loadData" />
         </div>
       </v-card-text>
     </v-card>
@@ -584,6 +589,7 @@ import { ref, computed, onMounted } from 'vue';
 import { useAuthStore } from '../stores/authStore';
 import api from '../api/client';
 import ExcelScheduleUploader from '../components/ExcelScheduleUploader.vue';
+import ClassroomCatalogView from './ClassroomCatalogView.vue';
 
 const authStore = useAuthStore();
 

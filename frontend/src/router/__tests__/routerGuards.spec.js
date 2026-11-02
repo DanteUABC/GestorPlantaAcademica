@@ -10,6 +10,7 @@ vi.mock('../../views/TeacherView.vue', () => ({ default: { template: '<div></div
 vi.mock('../../views/UnauthorizedView.vue', () => ({ default: { template: '<div></div>' } }));
 vi.mock('../../views/ExternalRegisterView.vue', () => ({ default: { template: '<div></div>' } }));
 vi.mock('../../views/AnalyticsDashboardView.vue', () => ({ default: { template: '<div></div>' } }));
+vi.mock('../../views/ClassroomCatalogView.vue', () => ({ default: { template: '<div></div>' } }));
 
 describe('Vue Router - Navigation Guards', () => {
     beforeEach(() => {
@@ -106,5 +107,16 @@ describe('Vue Router - Navigation Guards', () => {
         await router.isReady();
 
         expect(router.currentRoute.value.path).toBe('/unauthorized');
+    });
+
+    it('debe permitir el acceso a /classrooms a un coordinador autenticado', async () => {
+        const store = useAuthStore();
+        store.accessToken = 'dummy-token';
+        store.userRole = 'role-coord';
+
+        await router.push('/classrooms');
+        await router.isReady();
+
+        expect(router.currentRoute.value.path).toBe('/classrooms');
     });
 });
