@@ -764,6 +764,198 @@ async function exportSchedules(req, res) {
   }
 }
 
+// -------------------------------------------------------------
+// REASIGNACIÓN Y SUPLENCIAS DE HORARIOS (ÉPICA 3 - TASKS 3.2 Y 3.3)
+// -------------------------------------------------------------
+
+async function getAvailableSubstitutes(req, res) {
+  try {
+    const { id } = req.params;
+    const tenantId = req.tenant_id;
+
+    if (!tenantId) {
+      return res.status(403).json({ error: 'No se pudo determinar la institución (tenant)' });
+    }
+
+    // 1. Obtener horario original verificando req.tenant_id
+    const schedule = await query.get(
+      'SELECT id, tenant_id, teacher_id, day_of_week, start_time, end_time FROM schedules WHERE id = ? AND tenant_id = ?',
+      [id, tenantId]
+    );
+
+    if (!schedule) {
+      return res.status(404).json({ error: 'Horario no encontrado en esta institución' });
+    }
+
+    // 2. Buscar usuarios con rol 'Profesor' del mismo tenant excluyendo original_teacher_id
+    // y filtrando a los que ya tengan clase ese mismo día donde (start_time < target_end AND end_time > target_start)
+    const availableSubstitutes = await query.all(
+      `SELECT u.id,
+              TRIM(CONCAT(COALESCE(u.nombre, ''), ' ', COALESCE(u.apellidos, ''))) AS name,
+              u.email,
+              u.identificador AS identifier
+       FROM users u
+       JOIN roles r ON u.role_id = r.id
+       WHERE u.tenant_id = ?
+         AND (r.name = 'Profesor' OR r.nombre = 'Profesor')
+         AND u.id != ?
+         AND NOT EXISTS (
+           SELECT 1 FROM schedules s
+           WHERE s.tenant_id = ?
+             AND s.teacher_id = u.id
+             AND s.day_of_week = ?
+             AND s.start_time < ?
+             AND s.end_time > ?
+             AND s.id != ?
+         )
+       ORDER BY name ASC`,
+      [tenantId, schedule.teacher_id, tenantId, schedule.day_of_week, schedule.end_time, schedule.start_time, schedule.id]
+    );
+
+    return res.status(200).json(availableSubstitutes);
+  } catch (err) {
+    console.error('Error al consultar suplentes disponibles:', err);
+    return res.status(500).json({ error: 'Error al consultar suplentes disponibles', details: err.message });
+  }
+}
+
+async function transferSchedule(req, res) {
+  let client;
+  try {
+    const { id } = req.params;
+    const tenantId = req.tenant_id;
+    const { substitute_teacher_id, reason, effective_date } = req.body;
+
+    if (!tenantId) {
+      return res.status(403).json({ error: 'No se pudo determinar la institución (tenant)' });
+    }
+
+    if (!substitute_teacher_id) {
+      return res.status(400).json({ error: 'El docente suplente (substitute_teacher_id) es obligatorio' });
+    }
+
+    // Iniciar transacción SQL para reasignación y trazabilidad atómica
+    const crypto = require('crypto');
+    client = await pool.connect();
+    await client.query('BEGIN');
+
+    // 1. Obtener horario y bloquear fila para update
+    const schedRes = await client.query(
+      `SELECT id, tenant_id, teacher_id, day_of_week, start_time, end_time, subject_id, classroom_id
+       FROM schedules
+       WHERE id = $1 AND tenant_id = $2
+       FOR UPDATE`,
+      [id, tenantId]
+    );
+
+    if (schedRes.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Horario no encontrado en esta institución' });
+    }
+
+    const schedule = schedRes.rows[0];
+
+    // Validar que el suplente no sea el docente ya asignado
+    if (schedule.teacher_id === substitute_teacher_id) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'El docente suplente no puede ser el mismo docente asignado actualmente' });
+    }
+
+    // 2. Validar que el substitute_teacher_id exista en el tenant y tenga rol de Profesor
+    const teacherRes = await client.query(
+      `SELECT u.id, 
+              TRIM(CONCAT(COALESCE(u.nombre, ''), ' ', COALESCE(u.apellidos, ''))) AS name,
+              u.email
+       FROM users u
+       JOIN roles r ON u.role_id = r.id
+       WHERE u.id = $1 AND u.tenant_id = $2 AND (r.name = 'Profesor' OR r.nombre = 'Profesor')`,
+      [substitute_teacher_id, tenantId]
+    );
+
+    if (teacherRes.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'Docente suplente no encontrado o no tiene rol de Profesor en esta institución' });
+    }
+
+    const substituteTeacher = teacherRes.rows[0];
+
+    // 3. Verificar de nuevo que el substitute_teacher_id no tenga empalmes de horario
+    const conflictRes = await client.query(
+      `SELECT s.id, s.start_time, s.end_time, sub.name as subject_name
+       FROM schedules s
+       JOIN subjects sub ON s.subject_id = sub.id
+       WHERE s.tenant_id = $1
+         AND s.teacher_id = $2
+         AND s.day_of_week = $3
+         AND s.start_time < $4
+         AND s.end_time > $5
+         AND s.id != $6
+       LIMIT 1`,
+      [tenantId, substitute_teacher_id, schedule.day_of_week, schedule.end_time, schedule.start_time, schedule.id]
+    );
+
+    if (conflictRes.rows.length > 0) {
+      await client.query('ROLLBACK');
+      const conflict = conflictRes.rows[0];
+      return res.status(400).json({
+        error: `Empalme de horario: el docente ${substituteTeacher.name} ya tiene clase el ${schedule.day_of_week} de ${conflict.start_time} a ${conflict.end_time} (${conflict.subject_name})`,
+        conflict
+      });
+    }
+
+    // 4. Registrar en schedule_substitutions para trazabilidad
+    const substitutionId = 'subst-' + crypto.randomUUID();
+    const effectiveDateVal = effective_date || new Date().toISOString().split('T')[0];
+
+    await client.query(
+      `INSERT INTO schedule_substitutions (
+         id, tenant_id, schedule_id, original_teacher_id, substitute_teacher_id, reason, effective_date, created_at
+       ) VALUES ($1, $2, $3, $4, $5, $6, $7, CURRENT_TIMESTAMP)`,
+      [
+        substitutionId,
+        tenantId,
+        schedule.id,
+        schedule.teacher_id,
+        substitute_teacher_id,
+        reason || null,
+        effectiveDateVal
+      ]
+    );
+
+    // 5. Actualizar schedules con el nuevo docente asignado
+    await client.query(
+      `UPDATE schedules
+       SET teacher_id = $1
+       WHERE id = $2 AND tenant_id = $3`,
+      [substitute_teacher_id, schedule.id, tenantId]
+    );
+
+    await client.query('COMMIT');
+
+    return res.status(200).json({
+      message: 'Horario transferido y suplencia registrada exitosamente',
+      schedule_id: schedule.id,
+      substitution_id: substitutionId,
+      original_teacher_id: schedule.teacher_id,
+      substitute_teacher_id,
+      reason: reason || null,
+      effective_date: effectiveDateVal
+    });
+  } catch (err) {
+    if (client) {
+      try {
+        await client.query('ROLLBACK');
+      } catch (_) {}
+    }
+    console.error('Error al transferir horario:', err);
+    return res.status(500).json({ error: 'Error interno al transferir horario', details: err.message });
+  } finally {
+    if (client) {
+      client.release();
+    }
+  }
+}
+
 module.exports = {
   createSchedule,
   getCoordinatorSchedules,
@@ -775,7 +967,11 @@ module.exports = {
   parseExcelBuffer,
   mapExcelRows,
   parseExcelTime,
-  normalizeKey
+  normalizeKey,
+  getAvailableSubstitutes,
+  transferSchedule
 };
 
 module.exports.exportSchedules = exportSchedules;
+module.exports.getAvailableSubstitutes = getAvailableSubstitutes;
+module.exports.transferSchedule = transferSchedule;

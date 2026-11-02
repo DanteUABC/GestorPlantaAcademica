@@ -177,14 +177,25 @@
                         <v-icon icon="mdi-clock-outline" size="x-small"></v-icon>
                         {{ item.start_time }} - {{ item.end_time }}
                       </div>
-                      <v-btn
-                        icon="mdi-delete-outline"
-                        size="x-small"
-                        variant="text"
-                        color="error"
-                        title="Eliminar Horario"
-                        @click="handleDeleteSchedule(item.id)"
-                      ></v-btn>
+                      <div class="d-flex ga-1">
+                        <v-btn
+                          icon="mdi-account-switch"
+                          size="x-small"
+                          variant="text"
+                          color="primary"
+                          title="Reasignar docente / Suplente"
+                          data-testid="btn-transfer-grid"
+                          @click="openTransferModal(item)"
+                        ></v-btn>
+                        <v-btn
+                          icon="mdi-delete-outline"
+                          size="x-small"
+                          variant="text"
+                          color="error"
+                          title="Eliminar Horario"
+                          @click="handleDeleteSchedule(item.id)"
+                        ></v-btn>
+                      </div>
                     </div>
 
                     <div class="text-subtitle-2 font-weight-bold text-slate-800 mt-1">
@@ -260,6 +271,17 @@
                   <span class="text-caption">{{ sch.max_students }} lugares</span>
                 </td>
                 <td class="text-right">
+                  <v-btn
+                    color="primary"
+                    variant="text"
+                    size="small"
+                    prepend-icon="mdi-account-switch"
+                    class="text-none mr-1"
+                    data-testid="btn-transfer-list"
+                    @click="openTransferModal(sch)"
+                  >
+                    Reasignar
+                  </v-btn>
                   <v-btn
                     color="error"
                     variant="text"
@@ -1060,6 +1082,13 @@
       </v-card>
     </v-dialog>
 
+    <!-- MODAL DE TRANSFERENCIA Y SUPLENCIAS -->
+    <ScheduleTransferModal
+      v-model="isTransferModalOpen"
+      :schedule="selectedScheduleForTransfer"
+      @transferred="handleTransferSuccess"
+    />
+
     <!-- Global Snackbar -->
     <v-snackbar v-model="snackbar.show" :color="snackbar.color" timeout="3000">
       {{ snackbar.text }}
@@ -1073,8 +1102,26 @@ import { useAuthStore } from '../stores/authStore';
 import api from '../api/client';
 import ExcelScheduleUploader from '../components/ExcelScheduleUploader.vue';
 import ClassroomCatalogView from './ClassroomCatalogView.vue';
+import ScheduleTransferModal from '../components/ScheduleTransferModal.vue';
 
 const authStore = useAuthStore();
+
+const isTransferModalOpen = ref(false);
+const selectedScheduleForTransfer = ref(null);
+
+function openTransferModal(schedule) {
+  selectedScheduleForTransfer.value = schedule;
+  isTransferModalOpen.value = true;
+}
+
+function handleTransferSuccess(payload) {
+  snackbar.value = {
+    show: true,
+    text: payload?.data?.message || '¡Horario reasignado y suplencia registrada exitosamente!',
+    color: 'success'
+  };
+  loadData();
+}
 
 const viewTab = ref('grid');
 const schedules = ref([]);
