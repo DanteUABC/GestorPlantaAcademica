@@ -131,6 +131,17 @@ async function updateClassroom(req, res) {
     const updatedBuilding = building !== undefined ? String(building).trim() : existing.building;
     const updatedType = type !== undefined ? String(type).trim() : existing.type;
 
+    // Validar colisión de nombre dentro del mismo tenant (excluyendo el aula actual)
+    if (name !== undefined) {
+      const duplicate = await query.get(
+        'SELECT id FROM classrooms WHERE tenant_id = ? AND LOWER(TRIM(name)) = LOWER(?) AND id != ?',
+        [tenantId, updatedName, id]
+      );
+      if (duplicate) {
+        return res.status(409).json({ error: 'Ya existe un aula con ese nombre en esta institución' });
+      }
+    }
+
     await query.run(
       'UPDATE classrooms SET name = ?, building = ?, capacity = ?, type = ? WHERE id = ? AND tenant_id = ?',
       [updatedName, updatedBuilding, parsedCapacity, updatedType, id, tenantId]
@@ -179,7 +190,7 @@ async function deleteClassroom(req, res) {
     const activeCount = schedulesCheck ? parseInt(schedulesCheck.count, 10) : 0;
     if (activeCount > 0) {
       return res.status(409).json({
-        error: 'No se puede eliminar el aula porque tiene horarios activos asignados'
+        error: 'El aula no puede eliminarse porque está reservada en horarios vigentes'
       });
     }
 

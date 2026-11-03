@@ -101,6 +101,7 @@
           <v-tab value="grid" prepend-icon="mdi-view-week">Parrilla Semanal de Horarios</v-tab>
           <v-tab value="list" prepend-icon="mdi-format-list-bulleted">Listado Detallado de Grupos</v-tab>
           <v-tab value="upload" prepend-icon="mdi-file-excel-box">Carga Masiva Excel</v-tab>
+          <v-tab value="subjects" prepend-icon="mdi-book-education-outline" data-testid="tab-subjects-catalog">Catálogo de Materias</v-tab>
           <v-tab value="classrooms" to="/classrooms" prepend-icon="mdi-office-building-cog-outline" data-testid="tab-classroom-catalog">Catálogo de Aulas</v-tab>
           <v-tab to="/analytics" prepend-icon="mdi-chart-box-outline">Analítica Operativa</v-tab>
         </v-tabs>
@@ -308,6 +309,101 @@
         <!-- TAB 4: CATÁLOGO DE AULAS -->
         <div v-if="viewTab === 'classrooms'" class="pa-2">
           <ClassroomCatalogView @updated="loadData" />
+        </div>
+        <!-- TAB 5: CATÁLOGO DE MATERIAS -->
+        <div v-if="viewTab === 'subjects'" class="pa-2" data-testid="subjects-catalog-tab-content">
+          <!-- Barra Superior de Control del Catálogo -->
+          <div class="d-flex flex-wrap align-center justify-space-between ga-3 mb-4">
+            <v-text-field
+              v-model="searchSubjectText"
+              placeholder="Buscar por nombre o clave..."
+              prepend-inner-icon="mdi-magnify"
+              variant="outlined"
+              density="compact"
+              hide-details
+              clearable
+              style="max-width: 380px; min-width: 250px;"
+              data-testid="input-search-subjects"
+            ></v-text-field>
+
+            <v-btn
+              color="primary"
+              prepend-icon="mdi-plus"
+              elevation="1"
+              class="text-none font-weight-bold"
+              data-testid="btn-new-subject"
+              @click="openNewSubjectDialog"
+            >
+              Nueva Materia
+            </v-btn>
+          </div>
+
+          <!-- Tabla Interactiva de Materias -->
+          <v-table class="border rounded" hover>
+            <thead>
+              <tr class="bg-grey-lighten-4">
+                <th class="font-weight-bold">Clave / Código</th>
+                <th class="font-weight-bold">Nombre de la Materia</th>
+                <th class="font-weight-bold text-center">Créditos</th>
+                <th class="font-weight-bold text-center">Cantidad de Grupos Asignados</th>
+                <th class="font-weight-bold text-right">Acciones</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr
+                v-for="sub in filteredSubjectsList"
+                :key="sub.id"
+                :data-testid="'row-subject-' + sub.id"
+              >
+                <td class="font-weight-medium">
+                  <span class="text-primary font-weight-bold">{{ sub.code || sub.codigo }}</span>
+                </td>
+                <td>{{ sub.name || sub.nombre }}</td>
+                <td class="text-center">{{ sub.credits ?? sub.creditos ?? 0 }}</td>
+                <td class="text-center">
+                  <v-chip
+                    size="small"
+                    :color="(getSubjectAssignedGroups(sub) > 0) ? 'primary' : 'grey'"
+                    variant="tonal"
+                    class="font-weight-bold"
+                    data-testid="chip-assigned-groups"
+                  >
+                    {{ getSubjectAssignedGroups(sub) }}
+                  </v-chip>
+                </td>
+                <td class="text-right">
+                  <v-btn
+                    variant="text"
+                    size="small"
+                    color="primary"
+                    icon="mdi-pencil"
+                    class="mr-1"
+                    data-testid="btn-edit-subject"
+                    @click="openEditSubjectDialog(sub)"
+                    title="Editar Materia"
+                  >
+                    <v-icon icon="mdi-pencil"></v-icon>
+                  </v-btn>
+                  <v-btn
+                    variant="text"
+                    size="small"
+                    color="error"
+                    icon="mdi-delete"
+                    data-testid="btn-delete-subject"
+                    @click="confirmDeleteSubject(sub)"
+                    title="Eliminar Materia"
+                  >
+                    <v-icon icon="mdi-delete"></v-icon>
+                  </v-btn>
+                </td>
+              </tr>
+              <tr v-if="filteredSubjectsList.length === 0">
+                <td colspan="5" class="text-center py-6 text-grey" data-testid="no-subjects-message">
+                  No se encontraron materias que coincidan con la búsqueda.
+                </td>
+              </tr>
+            </tbody>
+          </v-table>
         </div>
       </v-card-text>
     </v-card>
@@ -835,6 +931,157 @@
       </v-card>
     </v-dialog>
 
+    <!-- DIALOG: UNIFICADO REGISTRO / EDICIÓN DE MATERIA -->
+    <v-dialog
+      v-model="subjectDialog"
+      max-width="500"
+      persistent
+      data-testid="dialog-subject"
+    >
+      <v-card rounded="lg" elevation="8">
+        <v-card-title class="bg-primary text-white pa-4 d-flex justify-space-between align-center">
+          <span class="font-weight-bold d-flex align-center">
+            <v-icon :icon="isEditingSubject ? 'mdi-pencil-outline' : 'mdi-plus-circle-outline'" class="mr-2"></v-icon>
+            {{ isEditingSubject ? 'Editar Materia' : 'Nueva Materia' }}
+          </span>
+          <v-btn
+            icon="mdi-close"
+            variant="text"
+            color="white"
+            density="compact"
+            data-testid="btn-close-subject-dialog"
+            @click="closeSubjectDialog"
+          ></v-btn>
+        </v-card-title>
+
+        <v-card-text class="pa-5">
+          <v-alert
+            v-if="subjectError"
+            type="error"
+            variant="tonal"
+            density="compact"
+            class="mb-4"
+            closable
+            data-testid="subject-error"
+            @click:close="subjectError = ''"
+          >
+            {{ subjectError }}
+          </v-alert>
+
+          <v-form @submit.prevent="saveSubject" data-testid="subject-form">
+            <v-text-field
+              v-model="subjectForm.code"
+              @input="onSubjectCodeInput"
+              label="Clave / Código *"
+              placeholder="Ej. MAT-101, PROG-2"
+              variant="outlined"
+              density="comfortable"
+              prepend-inner-icon="mdi-barcode"
+              class="mb-3"
+              :rules="[v => !!(v && String(v).trim()) || 'El código o clave es obligatorio']"
+              data-testid="input-subject-code"
+            ></v-text-field>
+
+            <v-text-field
+              v-model="subjectForm.name"
+              label="Nombre de la Materia *"
+              placeholder="Ej. Cálculo Diferencial"
+              variant="outlined"
+              density="comfortable"
+              prepend-inner-icon="mdi-book-open-variant"
+              class="mb-3"
+              :rules="[v => !!(v && String(v).trim()) || 'El nombre de la materia es obligatorio']"
+              data-testid="input-subject-name"
+            ></v-text-field>
+
+            <v-text-field
+              v-model.number="subjectForm.credits"
+              label="Créditos (1 a 20) *"
+              type="number"
+              min="1"
+              max="20"
+              variant="outlined"
+              density="comfortable"
+              prepend-inner-icon="mdi-star-outline"
+              class="mb-4"
+              :rules="subjectCreditsRules"
+              data-testid="input-subject-credits"
+            ></v-text-field>
+
+            <div class="d-flex justify-end ga-2">
+              <v-btn
+                variant="text"
+                class="text-none"
+                data-testid="btn-cancel-subject"
+                @click="closeSubjectDialog"
+              >
+                Cancelar
+              </v-btn>
+              <v-btn
+                type="submit"
+                color="primary"
+                class="text-none font-weight-bold"
+                :loading="savingSubject"
+                data-testid="btn-save-subject"
+              >
+                {{ isEditingSubject ? 'Actualizar Materia' : 'Guardar Materia' }}
+              </v-btn>
+            </div>
+          </v-form>
+        </v-card-text>
+      </v-card>
+    </v-dialog>
+
+    <!-- DIALOG: CONFIRMACIÓN DE BORRADO DE MATERIA -->
+    <v-dialog
+      v-model="deleteSubjectDialog"
+      max-width="500"
+      persistent
+      data-testid="dialog-delete-subject"
+    >
+      <v-card rounded="lg" elevation="8">
+        <v-card-title class="bg-error text-white pa-4 d-flex justify-space-between align-center">
+          <span class="font-weight-bold d-flex align-center">
+            <v-icon icon="mdi-alert-circle-outline" class="mr-2"></v-icon>
+            Confirmar Eliminación
+          </span>
+          <v-btn
+            icon="mdi-close"
+            variant="text"
+            color="white"
+            density="compact"
+            data-testid="btn-close-delete-subject"
+            @click="closeDeleteSubjectDialog"
+          ></v-btn>
+        </v-card-title>
+        <v-card-text class="pa-5">
+          <p class="text-body-1" data-testid="text-confirm-delete-subject">
+            ¿Está seguro de eliminar la materia <strong>{{ subjectToDelete?.name || subjectToDelete?.nombre }}</strong> (<strong>{{ subjectToDelete?.code || subjectToDelete?.codigo }}</strong>)? Esta acción no se puede deshacer.
+          </p>
+        </v-card-text>
+        <v-card-actions class="pa-4 pt-0 d-flex justify-end ga-2">
+          <v-btn
+            variant="text"
+            class="text-none"
+            data-testid="btn-cancel-delete-subject"
+            @click="closeDeleteSubjectDialog"
+          >
+            Cancelar
+          </v-btn>
+          <v-btn
+            color="error"
+            variant="flat"
+            class="text-none font-weight-bold"
+            :loading="deletingSubject"
+            data-testid="btn-confirm-delete-subject"
+            @click="executeDeleteSubject"
+          >
+            Eliminar
+          </v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
     <!-- MODAL DE TRANSFERENCIA Y SUPLENCIAS -->
     <ScheduleTransferModal
       v-model="isTransferModalOpen"
@@ -850,7 +1097,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed, onMounted, watch } from 'vue';
 import { useAuthStore } from '../stores/authStore';
 import api from '../api/client';
 import ExcelScheduleUploader from '../components/ExcelScheduleUploader.vue';
@@ -1352,6 +1599,216 @@ function handleUploadSuccess(data) {
     color: 'success'
   };
   loadData();
+}
+
+// ==================== CATÁLOGO DE MATERIAS (TAREA 3778) ====================
+const searchSubjectText = ref('');
+const subjectDialog = ref(false);
+const isEditingSubject = ref(false);
+const savingSubject = ref(false);
+const subjectError = ref('');
+const subjectForm = ref({
+  id: '',
+  code: '',
+  name: '',
+  credits: 4
+});
+
+const deleteSubjectDialog = ref(false);
+const subjectToDelete = ref(null);
+const deletingSubject = ref(false);
+
+const subjectCreditsRules = [
+  v => {
+    if (v === undefined || v === null || v === '') return 'Los créditos son obligatorios';
+    const num = Number(v);
+    if (!Number.isInteger(num) || num < 1 || num > 20) {
+      return 'Los créditos deben ser un número entero entre 1 y 20';
+    }
+    return true;
+  }
+];
+
+function onSubjectCodeInput(event) {
+  const val = event?.target?.value !== undefined ? event.target.value : (typeof event === 'string' ? event : '');
+  subjectForm.value.code = val.toUpperCase();
+}
+
+watch(() => subjectForm.value.code, (newVal) => {
+  if (typeof newVal === 'string') {
+    const upper = newVal.toUpperCase();
+    if (newVal !== upper) {
+      subjectForm.value.code = upper;
+    }
+  }
+});
+
+function getSubjectAssignedGroups(sub) {
+  if (!sub) return 0;
+  if (sub.assigned_groups !== undefined && sub.assigned_groups !== null) {
+    return Number(sub.assigned_groups);
+  }
+  if (sub.assigned_groups_count !== undefined && sub.assigned_groups_count !== null) {
+    return Number(sub.assigned_groups_count);
+  }
+  return schedules.value.filter(s => s.subject_id === sub.id).length;
+}
+
+const filteredSubjectsList = computed(() => {
+  if (!searchSubjectText.value) return subjects.value;
+  const q = normalizeSearchText(searchSubjectText.value);
+  return subjects.value.filter(s => {
+    const code = normalizeSearchText(s.code || s.codigo);
+    const name = normalizeSearchText(s.name || s.nombre);
+    return code.includes(q) || name.includes(q);
+  });
+});
+
+function openNewSubjectDialog() {
+  isEditingSubject.value = false;
+  subjectError.value = '';
+  subjectForm.value = {
+    id: '',
+    code: '',
+    name: '',
+    credits: 4
+  };
+  subjectDialog.value = true;
+}
+
+function openEditSubjectDialog(sub) {
+  isEditingSubject.value = true;
+  subjectError.value = '';
+  subjectForm.value = {
+    id: sub.id,
+    code: (sub.code || sub.codigo || '').toUpperCase(),
+    name: sub.name || sub.nombre || '',
+    credits: sub.credits ?? sub.creditos ?? 4
+  };
+  subjectDialog.value = true;
+}
+
+function closeSubjectDialog() {
+  subjectDialog.value = false;
+  subjectError.value = '';
+  subjectForm.value = {
+    id: '',
+    code: '',
+    name: '',
+    credits: 4
+  };
+}
+
+async function saveSubject() {
+  subjectError.value = '';
+  const code = String(subjectForm.value.code || '').trim().toUpperCase();
+  const name = String(subjectForm.value.name || '').trim();
+  const credits = Number(subjectForm.value.credits);
+
+  if (!code || !name) {
+    subjectError.value = 'Código y nombre de materia son requeridos.';
+    return;
+  }
+
+  const check = subjectCreditsRules[0](credits);
+  if (check !== true) {
+    subjectError.value = check;
+    return;
+  }
+
+  savingSubject.value = true;
+  try {
+    if (isEditingSubject.value) {
+      const res = await api.put(`/subjects/${subjectForm.value.id}`, { code, name, credits });
+      const updated = res.data;
+      const idx = subjects.value.findIndex(s => s.id === updated.id);
+      if (idx !== -1) {
+        subjects.value[idx] = {
+          ...subjects.value[idx],
+          ...updated,
+          code: updated.code,
+          name: updated.name,
+          credits: updated.credits,
+          codigo: updated.code,
+          nombre: updated.name,
+          creditos: updated.credits
+        };
+      }
+      snackbar.value = {
+        show: true,
+        text: 'Materia actualizada exitosamente',
+        color: 'success'
+      };
+    } else {
+      const res = await api.post('/subjects', { code, name, credits });
+      const created = res.data;
+      subjects.value.push({
+        ...created,
+        assigned_groups: 0,
+        assigned_groups_count: 0,
+        codigo: created.code,
+        nombre: created.name,
+        creditos: created.credits
+      });
+      subjects.value.sort((a, b) => {
+        const cA = String(a.code || a.codigo || '');
+        const cB = String(b.code || b.codigo || '');
+        const cCmp = cA.localeCompare(cB);
+        if (cCmp !== 0) return cCmp;
+        return String(a.name || a.nombre || '').localeCompare(String(b.name || b.nombre || ''));
+      });
+      snackbar.value = {
+        show: true,
+        text: 'Materia registrada exitosamente',
+        color: 'success'
+      };
+    }
+    closeSubjectDialog();
+  } catch (err) {
+    if (err.response?.status === 409) {
+      subjectError.value = err.response.data?.error || 'Ya existe una materia con ese código en esta institución';
+    } else {
+      subjectError.value = err.response?.data?.error || 'Error al procesar la materia';
+    }
+  } finally {
+    savingSubject.value = false;
+  }
+}
+
+function confirmDeleteSubject(subject) {
+  subjectToDelete.value = subject;
+  deleteSubjectDialog.value = true;
+}
+
+function closeDeleteSubjectDialog() {
+  deleteSubjectDialog.value = false;
+  subjectToDelete.value = null;
+}
+
+async function executeDeleteSubject() {
+  if (!subjectToDelete.value) return;
+  const target = subjectToDelete.value;
+  deletingSubject.value = true;
+  try {
+    await api.delete(`/subjects/${target.id}`);
+    subjects.value = subjects.value.filter(s => s.id !== target.id);
+    snackbar.value = {
+      show: true,
+      text: 'Materia eliminada exitosamente',
+      color: 'success'
+    };
+    closeDeleteSubjectDialog();
+  } catch (err) {
+    closeDeleteSubjectDialog();
+    const errorMsg = err.response?.data?.error || 'No se pudo eliminar la materia';
+    snackbar.value = {
+      show: true,
+      text: errorMsg,
+      color: 'error'
+    };
+  } finally {
+    deletingSubject.value = false;
+  }
 }
 </script>
 

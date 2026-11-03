@@ -74,6 +74,8 @@ app.get('/api/auth/me', authController.getMe);
 // Catálogos generales (Materias, Aulas, Docentes)
 app.get('/api/subjects', catalogController.getSubjects);
 app.post('/api/subjects', requireRole(['Coordinador', 'Administrador']), catalogController.createSubject);
+app.put('/api/subjects/:id', requireRole(['Coordinador', 'Administrador']), catalogController.updateSubject);
+app.delete('/api/subjects/:id', requireRole(['Coordinador', 'Administrador']), catalogController.deleteSubject);
 
 app.get('/api/classrooms', classroomController.getClassrooms);
 app.post('/api/classrooms', requireRole(['Coordinador', 'Administrador']), classroomController.createClassroom);
