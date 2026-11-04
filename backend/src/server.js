@@ -143,6 +143,19 @@ if (fs.existsSync(frontendDistPath)) {
 
 // Inicializar DB e iniciar servidor solo si es ejecutado directamente
 if (require.main === module) {
+  const dbUrl = process.env.DATABASE_URL;
+  console.log(`[GPA] 🚀 Arrancando Gestor de Planta Académica en puerto ${PORT}...`);
+  if (!dbUrl) {
+    console.warn(`[GPA] ⚠️ AVISO: process.env.DATABASE_URL no está configurada.`);
+  } else {
+    try {
+      const parsed = new URL(dbUrl);
+      console.log(`[GPA] 📡 Configuración DB detectada -> Host: ${parsed.hostname}, Puerto: ${parsed.port || 5432}, DB: ${parsed.pathname.slice(1)}`);
+    } catch {
+      console.log(`[GPA] 📡 DATABASE_URL provista (longitud: ${dbUrl.length})`);
+    }
+  }
+
   initDatabase()
     .then(() => {
       app.listen(PORT, () => {
@@ -155,7 +168,16 @@ if (require.main === module) {
       });
     })
     .catch((err) => {
-      console.error('Error al inicializar la base de datos:', err);
+      console.error('❌ [GPA] Error al inicializar la base de datos:');
+      console.error(`   👉 Mensaje: ${err.message}`);
+      console.error(`   👉 Código: ${err.code || 'N/A'}`);
+      if (err.code === 'ECONNREFUSED') {
+        console.error('   ⚠️  Causa: No se pudo conectar al servidor de base de datos.');
+        console.error('   👉 Si el host es localhost / 127.0.0.1, recuerda que Render se ejecuta en la nube y no puede acceder a tu máquina local.');
+        console.error('   👉 Debes configurar la variable DATABASE_URL en Render con una base de datos en la nube accesible.');
+      } else if (err.code === '28P01') {
+        console.error('   ⚠️  Causa: Error de autenticación (usuario o contraseña de la base de datos incorrectos).');
+      }
       process.exit(1);
     });
 }

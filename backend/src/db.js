@@ -7,12 +7,19 @@ const { migrateSchedulesGroupAndSession } = require('./utils/schedulesMigration'
 const { migrateUserSchema } = require('./utils/userSchemaMigration');
 const { migrateScheduleSubstitutions } = require('./utils/scheduleSubstitutionsMigration');
 
+let connectionString = process.env.DATABASE_URL || 'postgresql://postgres:postgres@localhost:5432/gestor_planta';
+if (typeof connectionString === 'string') {
+  connectionString = connectionString.trim().replace(/^['"]|['"]$/g, '');
+}
+
 const poolConfig = {
-  connectionString: process.env.DATABASE_URL || 'postgresql://postgres:postgres@localhost:5432/gestor_planta'
+  connectionString
 };
 
-const isLocalhost = poolConfig.connectionString.includes('localhost') || poolConfig.connectionString.includes('127.0.0.1');
-if (!isLocalhost || process.env.DATABASE_SSL === 'true') {
+const isLocalhost = connectionString.includes('localhost') || connectionString.includes('127.0.0.1');
+if (process.env.DATABASE_SSL === 'false' || connectionString.includes('sslmode=disable')) {
+  delete poolConfig.ssl;
+} else if (!isLocalhost || process.env.DATABASE_SSL === 'true') {
   poolConfig.ssl = { rejectUnauthorized: false };
 }
 
