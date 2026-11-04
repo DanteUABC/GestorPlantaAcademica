@@ -1,6 +1,8 @@
 const express = require('express');
 const cors = require('cors');
 const cookieParser = require('cookie-parser');
+const path = require('path');
+const fs = require('fs');
 require('dotenv').config();
 
 const { initDatabase } = require('./db');
@@ -18,8 +20,18 @@ const app = express();
 const PORT = process.env.PORT || 5000;
 
 // CORS con soporte para cookies HttpOnly y credenciales
+const frontendUrl = process.env.FRONTEND_URL;
 app.use(cors({
-  origin: process.env.FRONTEND_URL || 'http://localhost:3000',
+  origin: (origin, callback) => {
+    if (!origin) return callback(null, true);
+    if (!frontendUrl || frontendUrl === '*' || origin === frontendUrl || origin.includes('localhost') || origin.includes('127.0.0.1')) {
+      return callback(null, true);
+    }
+    if (origin.endsWith('.onrender.com') || origin.endsWith('.railway.app') || origin.endsWith('.vercel.app')) {
+      return callback(null, true);
+    }
+    return callback(null, true);
+  },
   credentials: true
 }));
 
@@ -31,6 +43,16 @@ app.use(express.json());
 app.use((req, res, next) => {
   console.log(`[${new Date().toISOString()}] ${req.method} ${req.url} - Tenant: ${req.headers['x-tenant-id'] || 'None'}`);
   next();
+});
+
+// -------------------------------------------------------------
+// HEALTHCHECKS PÚBLICOS (Balanceadores y Plataformas Cloud)
+// -------------------------------------------------------------
+app.get(['/health', '/api/health'], (req, res) => {
+  res.json({
+    status: 'online',
+    timestamp: new Date().toISOString()
+  });
 });
 
 // -------------------------------------------------------------
@@ -104,16 +126,20 @@ app.get('/api/schedules/teacher', requireRole(['Profesor', 'Coordinador', 'Admin
 // Motor de Analítica: Ocupación de Aulas y Subutilización Docente
 app.use('/api/analytics', analyticsRoutes);
 
-// Healthcheck
-app.get('/api/health', (req, res) => {
-  res.json({
-    status: 'online',
-    timestamp: new Date().toISOString(),
-    tenant_id: req.tenant_id,
-    user: req.user?.name,
-    role: req.user?.role || req.user?.role_name
+// -------------------------------------------------------------
+// SERVIDOR DE ARCHIVOS ESTÁTICOS Y SPA FALLBACK (PRODUCCIÓN)
+// -------------------------------------------------------------
+const frontendDistPath = path.resolve(__dirname, '../../frontend/dist');
+if (fs.existsSync(frontendDistPath)) {
+  app.use(express.static(frontendDistPath));
+
+  app.use((req, res, next) => {
+    if (req.method === 'GET' && !req.path.startsWith('/api')) {
+      return res.sendFile(path.join(frontendDistPath, 'index.html'));
+    }
+    next();
   });
-});
+}
 
 // Inicializar DB e iniciar servidor solo si es ejecutado directamente
 if (require.main === module) {

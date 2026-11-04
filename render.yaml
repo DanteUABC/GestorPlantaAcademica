@@ -1,0 +1,29 @@
+services:
+  - type: web
+    name: gestor-planta-academica
+    runtime: node
+    plan: free
+    region: oregon
+    buildCommand: npm run build
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        fromDatabase:
+          name: gestor-planta-db
+          property: connectionString
+      - key: JWT_SECRET
+        generateValue: true
+      - key: JWT_REFRESH_SECRET
+        generateValue: true
+      - key: DATABASE_SSL
+        value: "true"
+
+databases:
+  - name: gestor-planta-db
+    databaseName: gestor_planta
+    user: gestor_admin
+    plan: free
+    region: oregon

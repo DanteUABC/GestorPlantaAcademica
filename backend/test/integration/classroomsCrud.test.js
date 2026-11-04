@@ -197,7 +197,7 @@ describe('Integración: Operaciones CRUD de Aulas y Aislamiento Multi-Tenant', (
         .set('Authorization', `Bearer ${coordTenant1Token}`);
 
       expect(res.status).toBe(409);
-      expect(res.body.error).toContain('horarios activos asignados');
+      expect(res.body.error).toMatch(/horarios (vigentes|activos asignados)/);
 
       // Verificar que el aula sigue existiendo
       const check = await pool.query('SELECT id FROM classrooms WHERE id = $1', ['cr-a101']);

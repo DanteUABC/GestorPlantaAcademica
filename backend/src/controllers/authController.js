@@ -521,10 +521,15 @@ exports.completeExternalRegistration = async (req, res) => {
 
     const fullName = `${nombre || ''} ${apellidos || ''}`.trim() || 'Usuario Externo';
 
+    const finalTenantId = (tenant_id === 1 || tenant_id === '1') ? 'tenant-itc' : (tenant_id || 'tenant-itc');
+    const finalRoleId = (rol_id === 1 || rol_id === '1' || rol_id === 'role-coord' || String(rol_id || '').toLowerCase().includes('coord')) 
+      ? 'role-coord' 
+      : ((rol_id === 'role-admin' || String(rol_id || '').toLowerCase().includes('admin')) ? 'role-admin' : 'role-teacher');
+
     const insertUser = await client.query(
-      `INSERT INTO usuarios (identificador, nombre, apellidos, email, provider, provider_id) 
-       VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
-      [identificador, nombre, apellidos, decoded.email, decoded.provider, decoded.provider_id]
+      `INSERT INTO usuarios (identificador, nombre, apellidos, email, provider, provider_id, tenant_id, role_id) 
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`,
+      [identificador, nombre, apellidos, decoded.email, decoded.provider, decoded.provider_id, finalTenantId, finalRoleId]
     );
 
     const userId = insertUser.rows[0].id;

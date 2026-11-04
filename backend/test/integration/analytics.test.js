@@ -305,8 +305,8 @@ describe('Motor de Analítica y SLA', () => {
 
         // Crear profesor y materia para el schedule
         await pool.query(`
-            INSERT INTO users (id, tenant_id, nombre, apellidos, email, identificador)
-            VALUES ('usr-avail-1', $1, 'Prof', 'Test', 'prof.avail@pavilion.com', 'DOC-AVAIL-1')
+            INSERT INTO users (id, tenant_id, nombre, apellidos, email, identificador, role_id)
+            VALUES ('usr-avail-1', $1, 'Prof', 'Test', 'prof.avail@pavilion.com', 'DOC-AVAIL-1', 'role-teacher')
             ON CONFLICT (id) DO NOTHING;
         `, [testTenantId]);
 

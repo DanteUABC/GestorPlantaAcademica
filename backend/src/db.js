@@ -7,9 +7,16 @@ const { migrateSchedulesGroupAndSession } = require('./utils/schedulesMigration'
 const { migrateUserSchema } = require('./utils/userSchemaMigration');
 const { migrateScheduleSubstitutions } = require('./utils/scheduleSubstitutionsMigration');
 
-const pool = new Pool({
+const poolConfig = {
   connectionString: process.env.DATABASE_URL || 'postgresql://postgres:postgres@localhost:5432/gestor_planta'
-});
+};
+
+const isLocalhost = poolConfig.connectionString.includes('localhost') || poolConfig.connectionString.includes('127.0.0.1');
+if (!isLocalhost || process.env.DATABASE_SSL === 'true') {
+  poolConfig.ssl = { rejectUnauthorized: false };
+}
+
+const pool = new Pool(poolConfig);
 
 // Helper para convertir consultas con '?' al formato de PostgreSQL '$1, $2, ...'
 function convertSql(sql) {
