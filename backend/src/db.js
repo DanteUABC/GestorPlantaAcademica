@@ -186,6 +186,7 @@ async function initDatabase() {
     CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
     CREATE INDEX IF NOT EXISTS idx_substitutions_tenant_schedule ON schedule_substitutions(tenant_id, schedule_id);
     CREATE INDEX IF NOT EXISTS idx_substitutions_tenant_substitute ON schedule_substitutions(tenant_id, substitute_teacher_id);
+    CREATE INDEX IF NOT EXISTS idx_schedules_tenant_teacher ON schedules(tenant_id, teacher_id);
 
     -- Vistas de compatibilidad inicial
     CREATE OR REPLACE VIEW aulas AS SELECT * FROM classrooms;

@@ -203,23 +203,50 @@ async function deleteSubject(req, res) {
   }
 }
 
-// List teachers in the tenant (users with role 'Profesor')
+// List teachers in the tenant (users with role 'Profesor') with workload metrics calculated on the fly
 async function getTeachers(req, res) {
   try {
+    const tenantId = req.tenant_id || req.user?.tenant_id;
     const teachers = await query.all(
       `SELECT u.id, u.nombre, u.apellidos,
               TRIM(CONCAT(COALESCE(u.nombre, ''), ' ', COALESCE(u.apellidos, ''))) AS name,
               u.email, u.email_activo, u.identificador, u.identificador AS identifier,
-              COALESCE(u.horas_contratadas, 25) AS horas_contratadas,
-              COALESCE(u.horas_contratadas, 25) AS max_hours,
+              COALESCE(u.horas_contratadas, 25)::int AS horas_contratadas,
+              COALESCE(u.horas_contratadas, 25)::int AS max_hours,
+              COALESCE(ROUND(SUM(EXTRACT(EPOCH FROM (s.end_time::time - s.start_time::time)) / 3600.0)::numeric, 2), 0)::float AS horas_asignadas,
+              COALESCE(COUNT(DISTINCT s.group_code), 0)::int AS grupos_asignados_count,
               COALESCE(u.estatus, 'activo') AS estatus
        FROM users u
        JOIN roles r ON u.role_id = r.id
+       LEFT JOIN schedules s ON s.teacher_id = u.id AND s.tenant_id = u.tenant_id
        WHERE u.tenant_id = ? AND (r.name = 'Profesor' OR r.nombre = 'Profesor')
+       GROUP BY u.id, u.nombre, u.apellidos, u.email, u.email_activo, u.identificador, u.horas_contratadas, u.estatus
        ORDER BY name ASC`,
-      [req.tenant_id]
+      [tenantId]
     );
-    res.json(teachers);
+
+    const formatted = (teachers || []).map(t => {
+      const horasContratadas = Number(t.horas_contratadas) || 25;
+      const horasAsignadas = Number(t.horas_asignadas) || 0;
+      const gruposCount = Number(t.grupos_asignados_count) || 0;
+      return {
+        id: t.id,
+        name: t.name,
+        nombre: t.nombre,
+        apellidos: t.apellidos,
+        email: t.email,
+        email_activo: t.email_activo ?? true,
+        identificador: t.identificador,
+        identifier: t.identifier || t.identificador,
+        horas_contratadas: horasContratadas,
+        max_hours: horasContratadas,
+        horas_asignadas: horasAsignadas,
+        grupos_asignados_count: gruposCount,
+        estatus: t.estatus || 'activo'
+      };
+    });
+
+    res.json(formatted);
   } catch (err) {
     res.status(500).json({ error: 'Error al consultar profesores', details: err.message });
   }
