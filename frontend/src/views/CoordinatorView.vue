@@ -1204,79 +1204,176 @@
     </v-dialog>
 
     <!-- DIALOG: MINIVENTANA DE DETALLE DE DOCENTE -->
-    <v-dialog v-model="teacherDetailDialog" max-width="550" data-testid="dialog-teacher-detail">
+    <v-dialog
+      v-model="teacherDetailDialog"
+      max-width="680"
+      transition="dialog-bottom-transition"
+      data-testid="dialog-teacher-detail"
+    >
       <v-card v-if="selectedTeacherDetail" rounded="lg" elevation="6">
         <v-card-title class="bg-primary text-white pa-4 d-flex justify-space-between align-center">
-          <span class="font-weight-bold">
+          <div class="d-flex align-center">
             <v-icon icon="mdi-account-details-outline" class="mr-2"></v-icon>
-            Detalle del Docente
-          </span>
-          <v-btn icon="mdi-close" variant="text" color="white" density="compact" @click="teacherDetailDialog = false" data-testid="btn-close-detail-modal-top"></v-btn>
+            <span class="font-weight-bold">Detalle del Docente</span>
+          </div>
+          <v-btn
+            icon="mdi-close"
+            variant="text"
+            color="white"
+            density="compact"
+            data-testid="btn-close-detail-modal-top"
+            @click="teacherDetailDialog = false"
+            title="Cerrar modal"
+          ></v-btn>
         </v-card-title>
         <v-card-text class="pa-5">
-          <div class="d-flex align-center mb-4">
-            <v-avatar color="primary" size="48" class="mr-3 text-white font-weight-bold text-h6">
-              {{ (selectedTeacherDetail.name || selectedTeacherDetail.nombre || 'P').charAt(0).toUpperCase() }}
-            </v-avatar>
-            <div>
-              <div class="text-h6 font-weight-bold" data-testid="detail-teacher-name">
-                {{ selectedTeacherDetail.name || ((selectedTeacherDetail.nombre || '') + ' ' + (selectedTeacherDetail.apellidos || '')).trim() }}
-              </div>
-              <div class="text-subtitle-2 text-grey-darken-1" data-testid="detail-teacher-identifier">
-                Nómina / Identificador: {{ selectedTeacherDetail.identificador || selectedTeacherDetail.identifier || 'S/N' }}
+          <!-- Encabezado: Nombre completo del docente, avatar con iniciales, identificador institucional y chip de estatus -->
+          <div class="d-flex align-center justify-space-between flex-wrap ga-3 mb-4">
+            <div class="d-flex align-center">
+              <v-avatar color="primary" size="52" class="mr-3 text-white font-weight-bold text-h6" data-testid="detail-teacher-avatar">
+                {{ getTeacherInitials(selectedTeacherDetail) }}
+              </v-avatar>
+              <div>
+                <div class="text-h6 font-weight-bold text-slate-800" data-testid="detail-teacher-name">
+                  {{ selectedTeacherDetail.name || ((selectedTeacherDetail.nombre || '') + ' ' + (selectedTeacherDetail.apellidos || '')).trim() }}
+                </div>
+                <div class="text-subtitle-2 text-grey-darken-1" data-testid="detail-teacher-identifier">
+                  Nómina / Identificador: {{ selectedTeacherDetail.identificador || selectedTeacherDetail.identifier || 'S/N' }}
+                </div>
+                <div v-if="selectedTeacherDetail.email && selectedTeacherDetail.email_activo !== false" class="text-caption text-grey-darken-2" data-testid="detail-teacher-email">
+                  <v-icon icon="mdi-email-outline" size="14" class="mr-1"></v-icon>
+                  {{ selectedTeacherDetail.email }}
+                </div>
+                <div v-else class="mt-1">
+                  <v-chip size="x-small" color="grey" variant="tonal" class="font-weight-bold" data-testid="detail-teacher-email-revoked">
+                    <v-icon start icon="mdi-email-off-outline" size="12"></v-icon>
+                    Sin correo asignado (Revocado)
+                  </v-chip>
+                </div>
               </div>
             </div>
-          </div>
-          <v-divider class="mb-4"></v-divider>
-          <v-row dense>
-            <v-col cols="12" class="mb-2">
-              <span class="text-caption text-grey font-weight-bold d-block">CORREO INSTITUCIONAL</span>
-              <template v-if="selectedTeacherDetail.email && selectedTeacherDetail.email_activo !== false">
-                <span class="text-body-1 font-weight-medium" data-testid="detail-teacher-email">{{ selectedTeacherDetail.email }}</span>
-              </template>
-              <template v-else>
-                <v-chip size="small" color="grey" variant="tonal" class="mt-1 font-weight-bold" data-testid="detail-teacher-email-revoked">
-                  <v-icon start icon="mdi-email-off-outline" size="14"></v-icon>
-                  Sin correo asignado (Revocado)
-                </v-chip>
-              </template>
-            </v-col>
-            <v-col cols="6" class="mb-2">
-              <span class="text-caption text-grey font-weight-bold d-block">ESTATUS DE CUENTA</span>
+
+            <div class="d-flex flex-column align-end">
+              <span class="text-caption text-grey font-weight-bold mb-1">ESTATUS</span>
               <v-chip
                 size="small"
                 :color="(selectedTeacherDetail.estatus === 'activo' || !selectedTeacherDetail.estatus) ? 'success' : 'grey'"
                 variant="flat"
-                class="font-weight-bold text-uppercase mt-1"
+                class="font-weight-bold text-uppercase"
                 data-testid="detail-teacher-status"
               >
                 {{ (selectedTeacherDetail.estatus === 'activo' || !selectedTeacherDetail.estatus) ? 'Activo' : 'Inactivo' }}
               </v-chip>
-            </v-col>
-            <v-col cols="6" class="mb-2">
-              <span class="text-caption text-grey font-weight-bold d-block">GRUPOS ASIGNADOS</span>
-              <span class="text-body-1 font-weight-bold" data-testid="detail-teacher-groups">
+            </div>
+          </div>
+
+          <v-divider class="mb-4"></v-divider>
+
+          <!-- Tarjeta de Carga Contractual -->
+          <v-card variant="outlined" rounded="lg" class="pa-4 mb-4 bg-slate-50" data-testid="card-teacher-contract-workload">
+            <div class="d-flex align-center justify-space-between mb-2">
+              <span class="text-subtitle-2 font-weight-bold text-slate-800">
+                <v-icon icon="mdi-briefcase-clock-outline" class="mr-1 text-primary" size="small"></v-icon>
+                Carga Contractual y Asignación
+              </span>
+              <v-chip
+                size="small"
+                :color="getTeacherWorkloadColor(selectedTeacherDetail)"
+                variant="flat"
+                class="font-weight-bold text-white text-capitalize"
+                data-testid="detail-teacher-workload-chip"
+              >
+                {{ getTeacherWorkloadStatusLabel(selectedTeacherDetail) }}
+              </v-chip>
+            </div>
+
+            <!-- Visualización numérica -->
+            <div class="d-flex align-center justify-space-between flex-wrap mb-2 text-body-2" data-testid="detail-teacher-workload-numeric">
+              <span class="font-weight-bold" data-testid="detail-teacher-workload-text">
+                Horas asignadas: {{ getTeacherAssignedHours(selectedTeacherDetail) }} / Horas contractuales: {{ getTeacherContractedHours(selectedTeacherDetail) }} hrs ({{ getTeacherWorkloadPercentage(selectedTeacherDetail) }}%)
+              </span>
+              <span class="text-caption text-grey-darken-1 font-weight-medium">
+                {{ Math.max(0, getTeacherContractedHours(selectedTeacherDetail) - getTeacherAssignedHours(selectedTeacherDetail)) }} hrs disponibles
+              </span>
+            </div>
+
+            <!-- Medidor de progreso visual -->
+            <v-progress-linear
+              :model-value="getTeacherWorkloadPercentage(selectedTeacherDetail)"
+              :color="getTeacherWorkloadColor(selectedTeacherDetail)"
+              height="12"
+              rounded
+              data-testid="detail-teacher-progress-linear"
+            ></v-progress-linear>
+          </v-card>
+
+          <!-- Lista de Materias y Horarios Asignados -->
+          <div class="mt-2" data-testid="section-teacher-schedules">
+            <div class="d-flex align-center justify-space-between mb-2">
+              <span class="text-subtitle-2 font-weight-bold text-slate-800">
+                <v-icon icon="mdi-calendar-clock" class="mr-1 text-primary" size="small"></v-icon>
+                Materias y Horarios Asignados
+              </span>
+              <span class="text-caption font-weight-bold text-primary" data-testid="detail-teacher-groups">
                 {{ getTeacherGroupsCount(selectedTeacherDetail) }} grupos
               </span>
-            </v-col>
-            <v-col cols="12" class="mb-2">
-              <span class="text-caption text-grey font-weight-bold d-block">CARGA LECTIVA SEMANAL</span>
-              <div class="d-flex align-center justify-space-between mt-1 mb-1">
-                <span class="text-body-2 font-weight-bold" data-testid="detail-teacher-workload-text">
-                  {{ getTeacherAssignedHours(selectedTeacherDetail) }} / {{ selectedTeacherDetail.horas_contratadas ?? selectedTeacherDetail.max_hours ?? 25 }} horas
-                </span>
-                <span class="text-caption text-grey">
-                  {{ Math.max(0, (selectedTeacherDetail.horas_contratadas ?? selectedTeacherDetail.max_hours ?? 25) - getTeacherAssignedHours(selectedTeacherDetail)) }} hrs disponibles
-                </span>
+            </div>
+
+            <template v-if="selectedTeacherSchedules.length > 0">
+              <v-table density="compact" class="border rounded" hover data-testid="detail-teacher-schedules-table">
+                <thead>
+                  <tr class="bg-grey-lighten-4">
+                    <th class="font-weight-bold text-caption">Materia</th>
+                    <th class="font-weight-bold text-caption text-center">Grupo</th>
+                    <th class="font-weight-bold text-caption">Aula Asignada</th>
+                    <th class="font-weight-bold text-caption text-right">Día y Franja Horaria</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr
+                    v-for="sch in selectedTeacherSchedules"
+                    :key="sch.id"
+                    :data-testid="'row-teacher-schedule-' + sch.id"
+                  >
+                    <td class="font-weight-medium text-body-2">
+                      <div data-testid="schedule-subject-name">{{ sch.subject_name || sch.materia || 'Materia' }}</div>
+                      <div v-if="sch.session_type" class="text-caption text-grey">
+                        {{ sch.session_type }}
+                      </div>
+                    </td>
+                    <td class="text-center">
+                      <v-chip size="x-small" color="primary" variant="tonal" class="font-weight-bold" data-testid="schedule-group-code">
+                        {{ sch.group_code || 'G1' }}
+                      </v-chip>
+                    </td>
+                    <td class="text-body-2" data-testid="schedule-classroom-name">
+                      <v-icon icon="mdi-door" size="14" class="mr-1 text-grey"></v-icon>
+                      {{ sch.classroom_name || sch.aula || 'Sin aula' }}
+                    </td>
+                    <td class="text-right text-body-2 font-weight-medium" data-testid="schedule-time-slot">
+                      <div>
+                        <v-chip size="x-small" color="secondary" variant="outlined" class="mr-1 font-weight-bold">
+                          {{ sch.day_of_week }}
+                        </v-chip>
+                      </div>
+                      <div class="text-caption text-grey-darken-1 font-weight-bold">
+                        {{ sch.start_time }} - {{ sch.end_time }}
+                      </div>
+                    </td>
+                  </tr>
+                </tbody>
+              </v-table>
+            </template>
+            <template v-else>
+              <div
+                class="pa-4 bg-grey-lighten-4 rounded text-center text-body-2 text-grey-darken-1 border"
+                data-testid="no-teacher-schedules-message"
+              >
+                <v-icon icon="mdi-calendar-blank-outline" class="mr-2 text-grey" size="small"></v-icon>
+                El docente no tiene carga horaria asignada en este periodo.
               </div>
-              <v-progress-linear
-                :model-value="Math.min(100, ((getTeacherAssignedHours(selectedTeacherDetail) / (selectedTeacherDetail.horas_contratadas ?? selectedTeacherDetail.max_hours ?? 25)) * 100))"
-                :color="getTeacherWorkloadColor(selectedTeacherDetail)"
-                height="8"
-                rounded
-              ></v-progress-linear>
-            </v-col>
-          </v-row>
+            </template>
+          </div>
         </v-card-text>
         <v-card-actions class="pa-4 bg-grey-lighten-4 justify-end">
           <v-btn color="primary" variant="flat" class="text-none font-weight-bold" @click="teacherDetailDialog = false" data-testid="btn-close-detail-modal">
@@ -1363,15 +1460,68 @@ function getTeacherGroupsCount(t) {
   return groups.size;
 }
 
-function getTeacherWorkloadColor(teach) {
-  if (!teach) return 'grey';
+function getTeacherContractedHours(t) {
+  if (!t) return 25;
+  return Number(t.horas_contratadas ?? t.max_hours ?? 25);
+}
+
+function getTeacherWorkloadPercentage(teach) {
+  if (!teach) return 0;
   const assigned = getTeacherAssignedHours(teach);
-  const maxH = Number(teach.horas_contratadas) || Number(teach.max_hours) || 25;
-  if (assigned === 0) return 'grey';
-  if (assigned > maxH) return 'error';
-  if (assigned >= maxH * 0.8) return 'warning';
+  const maxH = getTeacherContractedHours(teach);
+  if (maxH <= 0) return 0;
+  return Math.round((assigned / maxH) * 100);
+}
+
+function getTeacherWorkloadColor(teach) {
+  if (!teach) return 'success';
+  const assigned = getTeacherAssignedHours(teach);
+  const maxH = getTeacherContractedHours(teach);
+  if (maxH <= 0) return 'error';
+  const pct = (assigned / maxH) * 100;
+  if (pct > 100) return 'error';
+  if (pct >= 80) return 'warning';
   return 'success';
 }
+
+function getTeacherWorkloadStatusLabel(teach) {
+  if (!teach) return '';
+  const pct = getTeacherWorkloadPercentage(teach);
+  if (pct > 100) return 'Sobrecarga laboral';
+  if (pct >= 80) return 'Carga próxima al tope';
+  return 'Carga óptima';
+}
+
+function getTeacherInitials(teach) {
+  if (!teach) return 'P';
+  if (teach.nombre && teach.apellidos) {
+    return (teach.nombre.trim()[0] + teach.apellidos.trim()[0]).toUpperCase();
+  }
+  const name = (teach.name || teach.nombre || '').trim();
+  const clean = name.replace(/^(dr|dra|mtro|mtra|ing|lic|prof)\.?\s+/i, '').trim();
+  const parts = clean.split(/\s+/).filter(Boolean);
+  if (parts.length >= 2) {
+    return (parts[0][0] + parts[1][0]).toUpperCase();
+  }
+  if (parts.length === 1 && parts[0].length >= 2) {
+    return parts[0].substring(0, 2).toUpperCase();
+  }
+  return (name[0] || 'P').toUpperCase();
+}
+
+const dayOrderMap = { 'Lunes': 1, 'Martes': 2, 'Miércoles': 3, 'Miercoles': 3, 'Jueves': 4, 'Viernes': 5, 'Sábado': 6, 'Sabado': 6, 'Domingo': 7 };
+
+const selectedTeacherSchedules = computed(() => {
+  if (!selectedTeacherDetail.value) return [];
+  return schedules.value
+    .filter(s => s.teacher_id === selectedTeacherDetail.value.id)
+    .sort((a, b) => {
+      const dayA = dayOrderMap[a.day_of_week] || 99;
+      const dayB = dayOrderMap[b.day_of_week] || 99;
+      if (dayA !== dayB) return dayA - dayB;
+      return (a.start_time || '').localeCompare(b.start_time || '');
+    });
+});
 
 const filteredTeachersList = computed(() => {
   const raw = debouncedTeacherSearch.value || searchTeacherText.value || '';

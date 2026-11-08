@@ -288,7 +288,7 @@ describe('CoordinatorView.vue - Catálogo de Maestros / Docentes (UI & UX)', () 
     expect(dialog.find('[data-testid="detail-teacher-email"]').text()).toBe('roberto.mendoza@universidad.edu.mx');
     expect(dialog.find('[data-testid="detail-teacher-status"]').text()).toBe('Activo');
     expect(dialog.find('[data-testid="detail-teacher-groups"]').text()).toContain('3 grupos');
-    expect(dialog.find('[data-testid="detail-teacher-workload-text"]').text()).toContain('18 / 25 horas');
+    expect(dialog.find('[data-testid="detail-teacher-workload-text"]').text()).toContain('Horas asignadas: 18 / Horas contractuales: 25 hrs (72%)');
 
     // Emisiones de eventos
     expect(wrapper.emitted('teacher-selected')).toBeTruthy();
