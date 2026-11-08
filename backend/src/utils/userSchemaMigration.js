@@ -123,12 +123,15 @@ async function migrateUserSchema(poolOrClient) {
         apellidos,
         TRIM(CONCAT(COALESCE(nombre, ''), ' ', COALESCE(apellidos, ''))) AS name,
         email,
+        email_activo,
         password_hash,
         role_id,
         identificador,
         identificador AS identifier,
         provider,
         provider_id,
+        horas_contratadas,
+        estatus,
         created_at
       FROM users;
 

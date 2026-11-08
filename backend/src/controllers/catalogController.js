@@ -209,7 +209,10 @@ async function getTeachers(req, res) {
     const teachers = await query.all(
       `SELECT u.id, u.nombre, u.apellidos,
               TRIM(CONCAT(COALESCE(u.nombre, ''), ' ', COALESCE(u.apellidos, ''))) AS name,
-              u.email, u.identificador, u.identificador AS identifier
+              u.email, u.email_activo, u.identificador, u.identificador AS identifier,
+              COALESCE(u.horas_contratadas, 25) AS horas_contratadas,
+              COALESCE(u.horas_contratadas, 25) AS max_hours,
+              COALESCE(u.estatus, 'activo') AS estatus
        FROM users u
        JOIN roles r ON u.role_id = r.id
        WHERE u.tenant_id = ? AND (r.name = 'Profesor' OR r.nombre = 'Profesor')

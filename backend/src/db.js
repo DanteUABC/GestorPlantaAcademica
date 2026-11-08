@@ -6,6 +6,7 @@ const { migrateClassroomsType } = require('./utils/classroomMigration');
 const { migrateSchedulesGroupAndSession } = require('./utils/schedulesMigration');
 const { migrateUserSchema } = require('./utils/userSchemaMigration');
 const { migrateScheduleSubstitutions } = require('./utils/scheduleSubstitutionsMigration');
+const { migrateUserContractAndStatus } = require('./utils/userContractMigration');
 
 let connectionString = process.env.DATABASE_URL || 'postgresql://postgres:postgres@localhost:5432/gestor_planta';
 if (typeof connectionString === 'string') {
@@ -84,18 +85,21 @@ async function initDatabase() {
       FOREIGN KEY (permission_id) REFERENCES permissions(id) ON DELETE CASCADE
     );
 
-    -- Users (Scoped by tenant_id, with role_id, soporte para OAuth y password_hash opcional)
+    -- Users (Scoped by tenant_id, with role_id, horas_contratadas, estatus, email_activo y soporte para OAuth)
     CREATE TABLE IF NOT EXISTS users (
       id VARCHAR(50) PRIMARY KEY,
       tenant_id VARCHAR(50),
       nombre VARCHAR(255),
       apellidos VARCHAR(255),
-      email VARCHAR(255) NOT NULL,
+      email VARCHAR(255),
+      email_activo BOOLEAN DEFAULT TRUE,
       password_hash VARCHAR(255),
       role_id VARCHAR(50),
       identificador VARCHAR(100),
       provider VARCHAR(50),
       provider_id VARCHAR(255),
+      horas_contratadas INTEGER DEFAULT 25,
+      estatus VARCHAR(20) DEFAULT 'activo',
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE,
       FOREIGN KEY (role_id) REFERENCES roles(id),
@@ -238,12 +242,15 @@ async function initDatabase() {
           apellidos,
           TRIM(CONCAT(COALESCE(nombre, ''), ' ', COALESCE(apellidos, ''))) AS name,
           email,
+          email_activo,
           password_hash,
           role_id,
           identificador,
           identificador AS identifier,
           provider,
           provider_id,
+          horas_contratadas,
+          estatus,
           created_at
         FROM users;
 
@@ -268,6 +275,13 @@ async function initDatabase() {
     `);
   } catch (migErr) {
     console.warn('Nota en migraciones incrementales:', migErr.message);
+  }
+
+  // Migración DDL para users: horas_contratadas, estatus y desvinculación de email
+  try {
+    await migrateUserContractAndStatus(pool);
+  } catch (contractMigErr) {
+    console.warn('Nota en migración de user contract y status:', contractMigErr.message);
   }
 
   // Migración de consolidación del esquema de usuarios (unificar nombres, identificadores y OAuth)
@@ -407,7 +421,10 @@ async function seedInitialData() {
       email: 'coordinador@pavilion.com',
       password_hash: defaultPasswordHash,
       role_id: 'role-coord',
-      identificador: 'C001'
+      identificador: 'C001',
+      horas_contratadas: 25,
+      estatus: 'activo',
+      email_activo: true
     },
     {
       id: 'usr-prof-1',
@@ -417,7 +434,10 @@ async function seedInitialData() {
       email: 'elena.salgado@pavilion.com',
       password_hash: defaultPasswordHash,
       role_id: 'role-teacher',
-      identificador: 'M001'
+      identificador: 'M001',
+      horas_contratadas: 25,
+      estatus: 'activo',
+      email_activo: true
     },
     {
       id: 'usr-prof-2',
@@ -427,7 +447,10 @@ async function seedInitialData() {
       email: 'carlos.vega@pavilion.com',
       password_hash: defaultPasswordHash,
       role_id: 'role-teacher',
-      identificador: 'M002'
+      identificador: 'M002',
+      horas_contratadas: 25,
+      estatus: 'activo',
+      email_activo: true
     }
   ];
 
@@ -435,9 +458,9 @@ async function seedInitialData() {
     const existing = await query.get('SELECT id FROM users WHERE id = ?', [u.id]);
     if (!existing) {
       await query.run(
-        `INSERT INTO users (id, tenant_id, nombre, apellidos, email, password_hash, role_id, identificador)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-        [u.id, u.tenant_id, u.nombre, u.apellidos, u.email, u.password_hash, u.role_id, u.identificador]
+        `INSERT INTO users (id, tenant_id, nombre, apellidos, email, password_hash, role_id, identificador, horas_contratadas, estatus, email_activo)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [u.id, u.tenant_id, u.nombre, u.apellidos, u.email, u.password_hash, u.role_id, u.identificador, u.horas_contratadas, u.estatus, u.email_activo]
       );
     } else {
       await query.run('UPDATE users SET email = ? WHERE id = ?', [u.email, u.id]);
