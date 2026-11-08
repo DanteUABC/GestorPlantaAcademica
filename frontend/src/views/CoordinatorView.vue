@@ -520,7 +520,7 @@
               </tr>
               <tr v-if="filteredTeachersList.length === 0">
                 <td colspan="6" class="text-center py-6 text-grey" data-testid="no-teachers-message">
-                  No se encontraron docentes que coincidan con la búsqueda.
+                  No se encontraron docentes registrados
                 </td>
               </tr>
             </tbody>
