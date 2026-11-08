@@ -102,6 +102,7 @@
           <v-tab value="list" prepend-icon="mdi-format-list-bulleted">Listado Detallado de Grupos</v-tab>
           <v-tab value="upload" prepend-icon="mdi-file-excel-box">Carga Masiva Excel</v-tab>
           <v-tab value="subjects" prepend-icon="mdi-book-education-outline" data-testid="tab-subjects-catalog">Catálogo de Materias</v-tab>
+          <v-tab value="teachers" prepend-icon="mdi-account-tie-outline" data-testid="tab-teachers-catalog">Catálogo de Docentes</v-tab>
           <v-tab value="classrooms" to="/classrooms" prepend-icon="mdi-office-building-cog-outline" data-testid="tab-classroom-catalog">Catálogo de Aulas</v-tab>
           <v-tab to="/analytics" prepend-icon="mdi-chart-box-outline">Analítica Operativa</v-tab>
         </v-tabs>
@@ -400,6 +401,126 @@
               <tr v-if="filteredSubjectsList.length === 0">
                 <td colspan="5" class="text-center py-6 text-grey" data-testid="no-subjects-message">
                   No se encontraron materias que coincidan con la búsqueda.
+                </td>
+              </tr>
+            </tbody>
+          </v-table>
+        </div>
+
+        <!-- TAB 6: CATÁLOGO DE DOCENTES / MAESTROS -->
+        <div v-if="viewTab === 'teachers'" class="pa-2" data-testid="teachers-catalog-tab-content">
+          <!-- Barra Superior de Control del Catálogo -->
+          <div class="d-flex flex-wrap align-center justify-space-between ga-3 mb-4">
+            <v-text-field
+              v-model="searchTeacherText"
+              placeholder="Buscar por nombre, nómina o correo..."
+              prepend-inner-icon="mdi-magnify"
+              variant="outlined"
+              density="compact"
+              hide-details
+              clearable
+              style="max-width: 380px; min-width: 250px;"
+              data-testid="input-search-teachers"
+              @input="handleTeacherSearchInput"
+              @update:model-value="handleTeacherSearchInput"
+            ></v-text-field>
+
+            <v-chip
+              color="primary"
+              variant="tonal"
+              size="default"
+              class="font-weight-bold"
+              data-testid="chip-total-teachers"
+            >
+              Total de docentes: {{ filteredTeachersList.length }}
+            </v-chip>
+          </div>
+
+          <!-- Tabla Interactiva de Docentes -->
+          <v-table class="border rounded" hover data-testid="teachers-catalog-table">
+            <thead>
+              <tr class="bg-grey-lighten-4">
+                <th class="font-weight-bold">Identificador / Nómina</th>
+                <th class="font-weight-bold">Nombre Completo del Docente</th>
+                <th class="font-weight-bold">Correo Electrónico Institucional</th>
+                <th class="font-weight-bold text-center">Carga Actual vs Contrato</th>
+                <th class="font-weight-bold text-center">Estatus de Cuenta</th>
+                <th class="font-weight-bold text-right">Acciones</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr
+                v-for="teach in filteredTeachersList"
+                :key="teach.id"
+                :data-testid="'row-teacher-' + teach.id"
+                class="cursor-pointer"
+                style="cursor: pointer;"
+                @click="openTeacherDetailModal(teach)"
+              >
+                <td class="font-weight-medium">
+                  <span class="text-primary font-weight-bold" data-testid="teacher-identifier">
+                    {{ teach.identificador || teach.identifier || 'S/N' }}
+                  </span>
+                </td>
+                <td class="font-weight-medium" data-testid="teacher-name">
+                  {{ teach.name || ((teach.nombre || '') + ' ' + (teach.apellidos || '')).trim() }}
+                </td>
+                <td data-testid="teacher-email">
+                  <template v-if="teach.email && teach.email_activo !== false">
+                    <span class="text-body-2" data-testid="teacher-email-text">{{ teach.email }}</span>
+                  </template>
+                  <template v-else>
+                    <v-chip
+                      size="small"
+                      color="grey"
+                      variant="tonal"
+                      class="font-weight-medium"
+                      data-testid="chip-email-revocado"
+                    >
+                      <v-icon start icon="mdi-email-off-outline" size="14"></v-icon>
+                      Sin correo asignado (Revocado)
+                    </v-chip>
+                  </template>
+                </td>
+                <td class="text-center" data-testid="teacher-workload">
+                  <v-chip
+                    size="small"
+                    :color="getTeacherWorkloadColor(teach)"
+                    variant="flat"
+                    class="font-weight-bold text-white"
+                    data-testid="chip-teacher-workload"
+                  >
+                    {{ getTeacherAssignedHours(teach) }} / {{ teach.horas_contratadas ?? teach.max_hours ?? 25 }} hrs
+                  </v-chip>
+                </td>
+                <td class="text-center" data-testid="teacher-status">
+                  <v-chip
+                    size="small"
+                    :color="(teach.estatus === 'activo' || !teach.estatus) ? 'success' : 'grey'"
+                    variant="flat"
+                    class="font-weight-bold text-uppercase"
+                    data-testid="chip-teacher-status"
+                  >
+                    {{ (teach.estatus === 'activo' || !teach.estatus) ? 'Activo' : 'Inactivo' }}
+                  </v-chip>
+                </td>
+                <td class="text-right" @click.stop>
+                  <v-btn
+                    variant="text"
+                    size="small"
+                    color="primary"
+                    icon="mdi-eye-outline"
+                    data-testid="btn-inspect-teacher"
+                    title="Ver Detalle del Docente"
+                    @click="openTeacherDetailModal(teach)"
+                  >
+                    <v-icon icon="mdi-eye-outline"></v-icon>
+                  </v-btn>
+                </td>
+              </tr>
+              <tr v-if="filteredTeachersList.length === 0">
+                <td colspan="6" class="text-center py-6 text-grey" data-testid="no-teachers-message">
+                  No se encontraron docentes que coincidan con la búsqueda.
                 </td>
               </tr>
             </tbody>
@@ -1082,6 +1203,89 @@
       </v-card>
     </v-dialog>
 
+    <!-- DIALOG: MINIVENTANA DE DETALLE DE DOCENTE -->
+    <v-dialog v-model="teacherDetailDialog" max-width="550" data-testid="dialog-teacher-detail">
+      <v-card v-if="selectedTeacherDetail" rounded="lg" elevation="6">
+        <v-card-title class="bg-primary text-white pa-4 d-flex justify-space-between align-center">
+          <span class="font-weight-bold">
+            <v-icon icon="mdi-account-details-outline" class="mr-2"></v-icon>
+            Detalle del Docente
+          </span>
+          <v-btn icon="mdi-close" variant="text" color="white" density="compact" @click="teacherDetailDialog = false" data-testid="btn-close-detail-modal-top"></v-btn>
+        </v-card-title>
+        <v-card-text class="pa-5">
+          <div class="d-flex align-center mb-4">
+            <v-avatar color="primary" size="48" class="mr-3 text-white font-weight-bold text-h6">
+              {{ (selectedTeacherDetail.name || selectedTeacherDetail.nombre || 'P').charAt(0).toUpperCase() }}
+            </v-avatar>
+            <div>
+              <div class="text-h6 font-weight-bold" data-testid="detail-teacher-name">
+                {{ selectedTeacherDetail.name || ((selectedTeacherDetail.nombre || '') + ' ' + (selectedTeacherDetail.apellidos || '')).trim() }}
+              </div>
+              <div class="text-subtitle-2 text-grey-darken-1" data-testid="detail-teacher-identifier">
+                Nómina / Identificador: {{ selectedTeacherDetail.identificador || selectedTeacherDetail.identifier || 'S/N' }}
+              </div>
+            </div>
+          </div>
+          <v-divider class="mb-4"></v-divider>
+          <v-row dense>
+            <v-col cols="12" class="mb-2">
+              <span class="text-caption text-grey font-weight-bold d-block">CORREO INSTITUCIONAL</span>
+              <template v-if="selectedTeacherDetail.email && selectedTeacherDetail.email_activo !== false">
+                <span class="text-body-1 font-weight-medium" data-testid="detail-teacher-email">{{ selectedTeacherDetail.email }}</span>
+              </template>
+              <template v-else>
+                <v-chip size="small" color="grey" variant="tonal" class="mt-1 font-weight-bold" data-testid="detail-teacher-email-revoked">
+                  <v-icon start icon="mdi-email-off-outline" size="14"></v-icon>
+                  Sin correo asignado (Revocado)
+                </v-chip>
+              </template>
+            </v-col>
+            <v-col cols="6" class="mb-2">
+              <span class="text-caption text-grey font-weight-bold d-block">ESTATUS DE CUENTA</span>
+              <v-chip
+                size="small"
+                :color="(selectedTeacherDetail.estatus === 'activo' || !selectedTeacherDetail.estatus) ? 'success' : 'grey'"
+                variant="flat"
+                class="font-weight-bold text-uppercase mt-1"
+                data-testid="detail-teacher-status"
+              >
+                {{ (selectedTeacherDetail.estatus === 'activo' || !selectedTeacherDetail.estatus) ? 'Activo' : 'Inactivo' }}
+              </v-chip>
+            </v-col>
+            <v-col cols="6" class="mb-2">
+              <span class="text-caption text-grey font-weight-bold d-block">GRUPOS ASIGNADOS</span>
+              <span class="text-body-1 font-weight-bold" data-testid="detail-teacher-groups">
+                {{ getTeacherGroupsCount(selectedTeacherDetail) }} grupos
+              </span>
+            </v-col>
+            <v-col cols="12" class="mb-2">
+              <span class="text-caption text-grey font-weight-bold d-block">CARGA LECTIVA SEMANAL</span>
+              <div class="d-flex align-center justify-space-between mt-1 mb-1">
+                <span class="text-body-2 font-weight-bold" data-testid="detail-teacher-workload-text">
+                  {{ getTeacherAssignedHours(selectedTeacherDetail) }} / {{ selectedTeacherDetail.horas_contratadas ?? selectedTeacherDetail.max_hours ?? 25 }} horas
+                </span>
+                <span class="text-caption text-grey">
+                  {{ Math.max(0, (selectedTeacherDetail.horas_contratadas ?? selectedTeacherDetail.max_hours ?? 25) - getTeacherAssignedHours(selectedTeacherDetail)) }} hrs disponibles
+                </span>
+              </div>
+              <v-progress-linear
+                :model-value="Math.min(100, ((getTeacherAssignedHours(selectedTeacherDetail) / (selectedTeacherDetail.horas_contratadas ?? selectedTeacherDetail.max_hours ?? 25)) * 100))"
+                :color="getTeacherWorkloadColor(selectedTeacherDetail)"
+                height="8"
+                rounded
+              ></v-progress-linear>
+            </v-col>
+          </v-row>
+        </v-card-text>
+        <v-card-actions class="pa-4 bg-grey-lighten-4 justify-end">
+          <v-btn color="primary" variant="flat" class="text-none font-weight-bold" @click="teacherDetailDialog = false" data-testid="btn-close-detail-modal">
+            Cerrar
+          </v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
     <!-- MODAL DE TRANSFERENCIA Y SUPLENCIAS -->
     <ScheduleTransferModal
       v-model="isTransferModalOpen"
@@ -1105,6 +1309,95 @@ import ClassroomCatalogView from './ClassroomCatalogView.vue';
 import ScheduleTransferModal from '../components/ScheduleTransferModal.vue';
 
 const authStore = useAuthStore();
+
+const emit = defineEmits([
+  'teacher-selected',
+  'open-teacher-detail'
+]);
+
+// Catálogo de Docentes (Búsqueda con debounce de 200ms, métricas reactivas y modal de detalle)
+const searchTeacherText = ref('');
+const debouncedTeacherSearch = ref('');
+let teacherSearchTimer = null;
+
+function handleTeacherSearchInput(val) {
+  const query = typeof val === 'string' ? val : (searchTeacherText.value || '');
+  if (teacherSearchTimer) {
+    clearTimeout(teacherSearchTimer);
+  }
+  teacherSearchTimer = setTimeout(() => {
+    debouncedTeacherSearch.value = query;
+  }, 200);
+}
+
+watch(searchTeacherText, (newVal) => {
+  if (teacherSearchTimer) {
+    clearTimeout(teacherSearchTimer);
+  }
+  if (!newVal) {
+    debouncedTeacherSearch.value = '';
+    return;
+  }
+  teacherSearchTimer = setTimeout(() => {
+    debouncedTeacherSearch.value = newVal;
+  }, 200);
+});
+
+function getTeacherAssignedHours(t) {
+  if (!t) return 0;
+  if (t.horas_asignadas !== undefined && t.horas_asignadas !== null) {
+    return Number(t.horas_asignadas);
+  }
+  return schedules.value
+    .filter(s => s.teacher_id === t.id)
+    .reduce((sum, s) => sum + calculateScheduleDurationHours(s.start_time, s.end_time), 0);
+}
+
+function getTeacherGroupsCount(t) {
+  if (!t) return 0;
+  if (t.grupos_asignados_count !== undefined && t.grupos_asignados_count !== null) {
+    return Number(t.grupos_asignados_count);
+  }
+  const teacherSchedules = schedules.value.filter(s => s.teacher_id === t.id);
+  const groups = new Set(teacherSchedules.map(s => s.group_code || 'G1'));
+  return groups.size;
+}
+
+function getTeacherWorkloadColor(teach) {
+  if (!teach) return 'grey';
+  const assigned = getTeacherAssignedHours(teach);
+  const maxH = Number(teach.horas_contratadas) || Number(teach.max_hours) || 25;
+  if (assigned === 0) return 'grey';
+  if (assigned > maxH) return 'error';
+  if (assigned >= maxH * 0.8) return 'warning';
+  return 'success';
+}
+
+const filteredTeachersList = computed(() => {
+  const raw = debouncedTeacherSearch.value || searchTeacherText.value || '';
+  const text = raw.trim();
+  if (!text) {
+    return teachers.value;
+  }
+  const q = normalizeSearchText(text);
+  return teachers.value.filter(t => {
+    const fullName = normalizeSearchText(t.name || ((t.nombre || '') + ' ' + (t.apellidos || '')).trim());
+    const idf = normalizeSearchText(t.identificador || t.identifier || '');
+    const email = normalizeSearchText(t.email || '');
+    return fullName.includes(q) || idf.includes(q) || email.includes(q);
+  });
+});
+
+const teacherDetailDialog = ref(false);
+const selectedTeacherDetail = ref(null);
+
+function openTeacherDetailModal(teach) {
+  selectedTeacherDetail.value = teach;
+  teacherDetailDialog.value = true;
+  emit('teacher-selected', teach);
+  emit('open-teacher-detail', teach);
+}
+
 
 const isTransferModalOpen = ref(false);
 const selectedScheduleForTransfer = ref(null);
