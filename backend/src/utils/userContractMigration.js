@@ -79,6 +79,22 @@ async function migrateUserContractAndStatus(clientOrPool) {
   await execute(`
     UPDATE users SET email_activo = TRUE WHERE email_activo IS NULL;
   `);
+  await execute(`
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS email_revocado_at TIMESTAMP;
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS token_version INTEGER DEFAULT 1;
+  `);
+  await execute(`
+    CREATE TABLE IF NOT EXISTS bitacora_revocaciones_email (
+      id SERIAL PRIMARY KEY,
+      tenant_id VARCHAR(50) NOT NULL,
+      user_id VARCHAR(50) NOT NULL,
+      email_anterior VARCHAR(255),
+      revocado_por VARCHAR(50),
+      motivo VARCHAR(255) DEFAULT 'Revocación de correo institucional',
+      revocado_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE INDEX IF NOT EXISTS idx_bitacora_revocaciones_tenant ON bitacora_revocaciones_email(tenant_id, user_id);
+  `);
 
   // 4. Inicializar específicamente a todos los usuarios con rol Profesor
   await execute(`

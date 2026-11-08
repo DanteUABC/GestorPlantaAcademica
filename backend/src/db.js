@@ -187,6 +187,18 @@ async function initDatabase() {
     CREATE INDEX IF NOT EXISTS idx_substitutions_tenant_schedule ON schedule_substitutions(tenant_id, schedule_id);
     CREATE INDEX IF NOT EXISTS idx_substitutions_tenant_substitute ON schedule_substitutions(tenant_id, substitute_teacher_id);
     CREATE INDEX IF NOT EXISTS idx_schedules_tenant_teacher ON schedules(tenant_id, teacher_id);
+    CREATE TABLE IF NOT EXISTS bitacora_revocaciones_email (
+      id SERIAL PRIMARY KEY,
+      tenant_id VARCHAR(50) NOT NULL,
+      user_id VARCHAR(50) NOT NULL,
+      email_anterior VARCHAR(255),
+      revocado_por VARCHAR(50),
+      motivo VARCHAR(255) DEFAULT 'Revocación de correo institucional',
+      revocado_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_bitacora_revocaciones_tenant ON bitacora_revocaciones_email(tenant_id, user_id);
 
     -- Vistas de compatibilidad inicial
     CREATE OR REPLACE VIEW aulas AS SELECT * FROM classrooms;
@@ -209,6 +221,8 @@ async function initDatabase() {
       ALTER TABLE users ADD COLUMN IF NOT EXISTS provider VARCHAR(50);
       ALTER TABLE users ADD COLUMN IF NOT EXISTS provider_id VARCHAR(255);
       UPDATE users SET email = REPLACE(email, '@itc.edu', '@pavilion.com') WHERE email LIKE '%@itc.edu';
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS email_revocado_at TIMESTAMP;
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS token_version INTEGER DEFAULT 1;
 
       -- Restricción única de correo para usuarios
       DO $$

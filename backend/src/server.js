@@ -105,6 +105,8 @@ app.put('/api/classrooms/:id', requireRole(['Coordinador', 'Administrador']), cl
 app.delete('/api/classrooms/:id', requireRole(['Coordinador', 'Administrador']), classroomController.deleteClassroom);
 
 app.get('/api/teachers', catalogController.getTeachers);
+app.put('/api/teachers/:id/revoke-email', requireRole(['Coordinador', 'Administrador']), catalogController.revokeTeacherEmail);
+app.post('/api/teachers/:id/deactivate-email', requireRole(['Coordinador', 'Administrador']), catalogController.revokeTeacherEmail);
 
 // Módulo Coordinador: Armado de Horarios
 app.post('/api/schedules', requireRole(['Coordinador', 'Administrador']), scheduleController.createSchedule);

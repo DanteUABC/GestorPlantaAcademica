@@ -1,4 +1,7 @@
-const { query } = require('../db');
+const db = require('../db');
+const query = db.query;
+const pool = db.pool || db;
+const { invalidateUserTokens } = require('../middleware/auth');
 const {
   getClassrooms,
   createClassroom,
@@ -252,6 +255,173 @@ async function getTeachers(req, res) {
   }
 }
 
+
+// PUT /api/teachers/:id/revoke-email o POST /api/teachers/:id/deactivate-email
+// Revoca el correo institucional de un docente preservando intacto su registro (id) y llaves foráneas
+async function revokeTeacherEmail(req, res) {
+  try {
+    const tenantId = req.tenant_id || req.user?.tenant_id;
+    if (!tenantId) {
+      return res.status(400).json({ error: 'Tenant no identificado en la sesión' });
+    }
+
+    const { id } = req.params;
+    if (!id || !String(id).trim()) {
+      return res.status(400).json({ error: 'Identificador de profesor no proporcionado' });
+    }
+
+    const teacherId = String(id).trim();
+    const operatorUserId = req.user?.id || req.user?.sub || 'system';
+    const reason = req.body?.reason || req.body?.motivo || 'Revocación de correo institucional';
+
+    let client = null;
+    if (typeof pool.connect === 'function') {
+      client = await pool.connect();
+    } else {
+      client = {
+        query: async (sql, params) => pool.query(sql, params),
+        release: () => {}
+      };
+    }
+
+    try {
+      await client.query('BEGIN');
+
+      // 1. Verificar si el usuario existe y pertenece al tenant_id de la sesión activa
+      const userRes = await client.query(
+        `SELECT u.id, u.tenant_id, u.nombre, u.apellidos, u.email, u.email_activo, u.role_id,
+                u.identificador, u.horas_contratadas, u.estatus, u.email_revocado_at
+         FROM users u
+         WHERE u.id = $1
+         FOR UPDATE`,
+        [teacherId]
+      );
+
+      if (!userRes || !userRes.rows || userRes.rows.length === 0 || userRes.rows[0].tenant_id !== tenantId) {
+        await client.query('ROLLBACK');
+        return res.status(404).json({ error: 'Profesor no encontrado o no pertenece a esta institución' });
+      }
+
+      const teacher = userRes.rows[0];
+
+      // Verificar que el usuario tenga rol de Profesor
+      let isTeacher = teacher.role_id === 'role-teacher' || teacher.role_id === '2';
+      if (!isTeacher && teacher.role_id) {
+        const roleRes = await client.query('SELECT name, nombre FROM roles WHERE id = $1', [teacher.role_id]);
+        if (roleRes.rows.length > 0) {
+          isTeacher = roleRes.rows[0].name === 'Profesor' || roleRes.rows[0].nombre === 'Profesor';
+        }
+      }
+      if (!isTeacher) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({ error: 'El usuario especificado no cuenta con rol de Profesor' });
+      }
+
+      // 2. Comportamiento idempotente: si ya estaba dado de baja
+      const isAlreadyRevoked = teacher.email_activo === false && (teacher.email === null || String(teacher.email).startsWith('baja_'));
+
+      if (!isAlreadyRevoked) {
+        const previousEmail = teacher.email;
+
+        // Registrar auditoría en la bitácora
+        await client.query(
+          `INSERT INTO bitacora_revocaciones_email (tenant_id, user_id, email_anterior, revocado_por, motivo, revocado_at)
+           VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP)`,
+          [tenantId, teacherId, previousEmail, operatorUserId, reason]
+        );
+
+        // Desvincular correo institucional, marcar email_activo = false, registrar email_revocado_at e incrementar token_version
+        await client.query(
+          `UPDATE users
+           SET email = NULL,
+               email_activo = FALSE,
+               email_revocado_at = CURRENT_TIMESTAMP,
+               token_version = COALESCE(token_version, 1) + 1
+           WHERE id = $1 AND tenant_id = $2`,
+          [teacherId, tenantId]
+        );
+      }
+
+      // 3. Invalidar tokens de sesión activos para dicho usuario
+      if (typeof invalidateUserTokens === 'function') {
+        invalidateUserTokens(teacherId);
+      }
+
+      // 4. Obtener el registro del profesor actualizado calculando métricas de carga
+      const updatedRes = await client.query(
+        `SELECT u.id, u.nombre, u.apellidos,
+                TRIM(CONCAT(COALESCE(u.nombre, ''), ' ', COALESCE(u.apellidos, ''))) AS name,
+                u.email, u.email_activo, u.identificador, u.identificador AS identifier,
+                COALESCE(u.horas_contratadas, 25)::int AS horas_contratadas,
+                COALESCE(u.horas_contratadas, 25)::int AS max_hours,
+                COALESCE(ROUND(SUM(EXTRACT(EPOCH FROM (s.end_time::time - s.start_time::time)) / 3600.0)::numeric, 2), 0)::float AS horas_asignadas,
+                COALESCE(COUNT(DISTINCT s.group_code), 0)::int AS grupos_asignados_count,
+                COALESCE(u.estatus, 'activo') AS estatus,
+                u.email_revocado_at
+         FROM users u
+         JOIN roles r ON u.role_id = r.id
+         LEFT JOIN schedules s ON s.teacher_id = u.id AND s.tenant_id = u.tenant_id
+         WHERE u.id = $1 AND u.tenant_id = $2
+         GROUP BY u.id, u.nombre, u.apellidos, u.email, u.email_activo, u.identificador, u.horas_contratadas, u.estatus, u.email_revocado_at`,
+        [teacherId, tenantId]
+      );
+
+      await client.query('COMMIT');
+
+      const updatedTeacher = (updatedRes && updatedRes.rows && updatedRes.rows[0]) ? updatedRes.rows[0] : {
+        ...teacher,
+        email: null,
+        email_activo: false
+      };
+
+      const horasContratadas = Number(updatedTeacher.horas_contratadas) || 25;
+      const horasAsignadas = Number(updatedTeacher.horas_asignadas) || 0;
+      const gruposCount = Number(updatedTeacher.grupos_asignados_count) || 0;
+
+      const teacherData = {
+        id: updatedTeacher.id,
+        name: updatedTeacher.name,
+        nombre: updatedTeacher.nombre,
+        apellidos: updatedTeacher.apellidos,
+        email: updatedTeacher.email,
+        email_activo: updatedTeacher.email_activo ?? false,
+        identificador: updatedTeacher.identificador,
+        identifier: updatedTeacher.identifier || updatedTeacher.identificador,
+        horas_contratadas: horasContratadas,
+        max_hours: horasContratadas,
+        horas_asignadas: horasAsignadas,
+        grupos_asignados_count: gruposCount,
+        estatus: updatedTeacher.estatus || 'activo',
+        email_revocado_at: updatedTeacher.email_revocado_at
+      };
+
+      return res.status(200).json({
+        message: isAlreadyRevoked
+          ? 'El correo del docente ya se encontraba revocado previamente'
+          : 'Correo institucional revocado exitosamente',
+        ...teacherData,
+        teacher: teacherData
+      });
+    } catch (txErr) {
+      if (client) {
+        try {
+          await client.query('ROLLBACK');
+        } catch (_) {}
+      }
+      throw txErr;
+    } finally {
+      if (client && typeof client.release === 'function') {
+        client.release();
+      }
+    }
+  } catch (err) {
+    return res.status(500).json({
+      error: 'Error al revocar correo del docente',
+      details: err.message
+    });
+  }
+}
+
 module.exports = {
   getSubjects,
   createSubject,
@@ -261,7 +431,8 @@ module.exports = {
   createClassroom,
   updateClassroom,
   deleteClassroom,
-  getTeachers
+  getTeachers,
+  revokeTeacherEmail
 };
 
 // Exportar getTenants para compatibilidad con catalogController
