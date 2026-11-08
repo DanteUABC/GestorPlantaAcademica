@@ -1269,6 +1269,93 @@
 
           <v-divider class="mb-4"></v-divider>
 
+          <!-- SECCIÓN: GOBERNANZA DE ACCESO Y CORREO INSTITUCIONAL -->
+          <v-card variant="outlined" rounded="lg" class="pa-4 mb-4 bg-slate-50" data-testid="section-access-governance">
+            <div class="d-flex align-center justify-space-between mb-2">
+              <span class="text-subtitle-2 font-weight-bold text-slate-800">
+                <v-icon icon="mdi-shield-account-outline" class="mr-1 text-primary" size="small"></v-icon>
+                Gobernanza de Acceso
+              </span>
+              <v-chip
+                size="x-small"
+                :color="(selectedTeacherDetail.email && selectedTeacherDetail.email_activo !== false) ? 'success' : 'grey'"
+                variant="tonal"
+                class="font-weight-bold"
+                data-testid="chip-governance-status"
+              >
+                {{ (selectedTeacherDetail.email && selectedTeacherDetail.email_activo !== false) ? 'Acceso Habilitado' : 'Sin Acceso Activo' }}
+              </v-chip>
+            </div>
+
+            <div class="d-flex align-center justify-space-between flex-wrap ga-3 mt-2">
+              <div>
+                <span class="text-caption text-grey font-weight-bold d-block">CORREO INSTITUCIONAL</span>
+                <template v-if="selectedTeacherDetail.email && selectedTeacherDetail.email_activo !== false">
+                  <span class="text-body-2 font-weight-bold text-slate-800" data-testid="governance-teacher-email">
+                    {{ selectedTeacherDetail.email }}
+                  </span>
+                </template>
+                <template v-else>
+                  <v-chip
+                    size="small"
+                    color="grey"
+                    variant="tonal"
+                    class="font-weight-bold mt-1"
+                    data-testid="chip-no-active-email"
+                  >
+                    <v-icon start icon="mdi-email-off-outline" size="14"></v-icon>
+                    Sin correo electrónico activo
+                  </v-chip>
+                </template>
+              </div>
+
+              <!-- Botón adyacente -->
+              <div>
+                <template v-if="selectedTeacherDetail.email && selectedTeacherDetail.email_activo !== false">
+                  <v-btn
+                    color="error"
+                    variant="outlined"
+                    size="small"
+                    class="text-none font-weight-bold"
+                    prepend-icon="mdi-email-remove-outline"
+                    data-testid="btn-revoke-email-trigger"
+                    @click="openRevokeEmailConfirmation"
+                  >
+                    Dar de baja correo
+                  </v-btn>
+                </template>
+                <template v-else>
+                  <v-btn
+                    color="grey"
+                    variant="outlined"
+                    size="small"
+                    disabled
+                    class="text-none font-weight-bold"
+                    prepend-icon="mdi-email-plus-outline"
+                    data-testid="btn-assign-new-email"
+                  >
+                    Asignar nuevo correo
+                  </v-btn>
+                </template>
+              </div>
+            </div>
+
+            <!-- Alerta de error si el backend devuelve un error -->
+            <v-alert
+              v-if="revokeEmailError"
+              type="error"
+              variant="tonal"
+              density="compact"
+              rounded="lg"
+              class="mt-3 text-caption"
+              closable
+              data-testid="alert-revoke-email-error"
+              @click:close="revokeEmailError = ''"
+            >
+              {{ revokeEmailError }}
+            </v-alert>
+          </v-card>
+
           <!-- Tarjeta de Carga Contractual -->
           <v-card variant="outlined" rounded="lg" class="pa-4 mb-4 bg-slate-50" data-testid="card-teacher-contract-workload">
             <div class="d-flex align-center justify-space-between mb-2">
@@ -1378,6 +1465,77 @@
         <v-card-actions class="pa-4 bg-grey-lighten-4 justify-end">
           <v-btn color="primary" variant="flat" class="text-none font-weight-bold" @click="teacherDetailDialog = false" data-testid="btn-close-detail-modal">
             Cerrar
+          </v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
+    <!-- SUBDIÁLOGO MODAL: CONFIRMACIÓN CRÍTICA DE REVOCACIÓN DE CORREO -->
+    <v-dialog
+      v-model="revokeConfirmDialog"
+      max-width="520"
+      persistent
+      data-testid="dialog-confirm-revoke-email"
+    >
+      <v-card rounded="lg" elevation="6">
+        <v-card-title class="bg-error text-white pa-4 d-flex justify-space-between align-center">
+          <div class="d-flex align-center">
+            <v-icon icon="mdi-alert-circle-outline" class="mr-2"></v-icon>
+            <span class="font-weight-bold">Confirmar Revocación de Correo</span>
+          </div>
+          <v-btn
+            icon="mdi-close"
+            variant="text"
+            color="white"
+            density="compact"
+            data-testid="btn-close-revoke-confirm"
+            :disabled="revokingEmail"
+            @click="closeRevokeConfirmDialog"
+          ></v-btn>
+        </v-card-title>
+
+        <v-card-text class="pa-5">
+          <v-alert
+            v-if="revokeEmailModalError"
+            type="error"
+            variant="tonal"
+            density="comfortable"
+            rounded="lg"
+            class="mb-4"
+            data-testid="alert-confirm-revoke-error"
+          >
+            {{ revokeEmailModalError }}
+          </v-alert>
+
+          <p class="text-body-1 text-slate-800" data-testid="text-confirm-revoke-warning">
+            ¿Está seguro de revocar el correo de <strong>{{ selectedTeacherDetail?.name || ((selectedTeacherDetail?.nombre || '') + ' ' + (selectedTeacherDetail?.apellidos || '')).trim() }}</strong>? El profesor ya no podrá iniciar sesión en la plataforma ni recibir notificaciones oficiales. Sus horarios y materias asignadas se conservarán intactos.
+          </p>
+
+          <div class="pa-3 bg-amber-lighten-5 rounded border border-amber-lighten-2 mt-4 text-caption text-amber-darken-4">
+            <v-icon icon="mdi-information-outline" class="mr-1" size="small"></v-icon>
+            Esta acción desvinculará la cuenta de acceso y revocará las sesiones activas, preservando el historial académico y la integridad referencial.
+          </div>
+        </v-card-text>
+
+        <v-card-actions class="pa-4 bg-grey-lighten-4 justify-end ga-2">
+          <v-btn
+            variant="text"
+            class="text-none font-weight-medium"
+            :disabled="revokingEmail"
+            data-testid="btn-cancel-revoke-email"
+            @click="closeRevokeConfirmDialog"
+          >
+            Cancelar
+          </v-btn>
+          <v-btn
+            color="error"
+            variant="flat"
+            class="text-none font-weight-bold"
+            :loading="revokingEmail"
+            data-testid="btn-confirm-revoke-email"
+            @click="executeRevokeEmail"
+          >
+            Confirmar Baja
           </v-btn>
         </v-card-actions>
       </v-card>
@@ -1541,8 +1699,67 @@ const filteredTeachersList = computed(() => {
 const teacherDetailDialog = ref(false);
 const selectedTeacherDetail = ref(null);
 
+const revokeConfirmDialog = ref(false);
+const revokingEmail = ref(false);
+const revokeEmailError = ref('');
+const revokeEmailModalError = ref('');
+
+function openRevokeEmailConfirmation() {
+  revokeEmailError.value = '';
+  revokeEmailModalError.value = '';
+  revokeConfirmDialog.value = true;
+}
+
+function closeRevokeConfirmDialog() {
+  if (revokingEmail.value) return;
+  revokeConfirmDialog.value = false;
+  revokeEmailModalError.value = '';
+}
+
+async function executeRevokeEmail() {
+  if (!selectedTeacherDetail.value?.id) return;
+  try {
+    revokingEmail.value = true;
+    revokeEmailError.value = '';
+    revokeEmailModalError.value = '';
+
+    const res = await api.put(`/teachers/${selectedTeacherDetail.value.id}/revoke-email`);
+
+    const updatedEmail = (res.data && res.data.email !== undefined) ? res.data.email : null;
+    const updatedEmailActivo = (res.data && res.data.email_activo !== undefined) ? res.data.email_activo : false;
+
+    // Actualizar reactivamente selectedTeacherDetail
+    selectedTeacherDetail.value.email = updatedEmail;
+    selectedTeacherDetail.value.email_activo = updatedEmailActivo;
+
+    // Actualizar reactivamente en la lista general de profesores
+    const idx = teachers.value.findIndex(t => t.id === selectedTeacherDetail.value.id);
+    if (idx !== -1) {
+      teachers.value[idx].email = updatedEmail;
+      teachers.value[idx].email_activo = updatedEmailActivo;
+    }
+
+    revokeConfirmDialog.value = false;
+
+    snackbar.value = {
+      show: true,
+      text: res.data?.message || 'Correo institucional revocado exitosamente',
+      color: 'success'
+    };
+  } catch (err) {
+    const errorMsg = err.response?.data?.error || err.response?.data?.message || 'Error al revocar el correo institucional';
+    revokeEmailModalError.value = errorMsg;
+    revokeEmailError.value = errorMsg;
+  } finally {
+    revokingEmail.value = false;
+  }
+}
+
 function openTeacherDetailModal(teach) {
   selectedTeacherDetail.value = teach;
+  revokeEmailError.value = '';
+  revokeEmailModalError.value = '';
+  revokeConfirmDialog.value = false;
   teacherDetailDialog.value = true;
   emit('teacher-selected', teach);
   emit('open-teacher-detail', teach);
