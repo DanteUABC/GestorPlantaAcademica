@@ -7,6 +7,7 @@ const { migrateSchedulesGroupAndSession } = require('./utils/schedulesMigration'
 const { migrateUserSchema } = require('./utils/userSchemaMigration');
 const { migrateScheduleSubstitutions } = require('./utils/scheduleSubstitutionsMigration');
 const { migrateUserContractAndStatus } = require('./utils/userContractMigration');
+const { migrateTeacherRestrictions } = require('./utils/teacherRestrictionsMigration');
 
 let connectionString = process.env.DATABASE_URL || 'postgresql://postgres:postgres@localhost:5432/gestor_planta';
 if (typeof connectionString === 'string') {
@@ -325,6 +326,13 @@ async function initDatabase() {
     await migrateScheduleSubstitutions(pool);
   } catch (substMigErr) {
     console.warn('Nota en migración de schedule_substitutions:', substMigErr.message);
+  }
+
+  // Migración DDL para teacher_restrictions (Restricciones horarias de docentes)
+  try {
+    await migrateTeacherRestrictions(pool);
+  } catch (restrMigErr) {
+    console.warn('Nota en migración de teacher_restrictions:', restrMigErr.message);
   }
 
   await seedInitialData();
