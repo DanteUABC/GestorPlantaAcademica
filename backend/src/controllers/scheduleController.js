@@ -89,6 +89,18 @@ async function createSchedule(req, res) {
       assignedStudents = parsedMaxStudents;
     }
 
+    // 1.5. MOTOR ANTI-EMPALME: Comprobar restricciones horarias del Docente (teacher_restrictions)
+    await validateTeacherRestrictions(
+      {
+        tenant_id: req.tenant_id,
+        teacher_id,
+        day_of_week,
+        start_time,
+        end_time
+      },
+      pool
+    );
+
     // 2. MOTOR ANTI-EMPALME: Comprobar colisión de horario del Docente
     // Regla de empalme: (start_time < new_end) AND (end_time > new_start)
     const teacherConflict = await query.get(
@@ -181,6 +193,14 @@ async function createSchedule(req, res) {
       }
     });
   } catch (err) {
+    if (err && err.conflictType === 'TEACHER_RESTRICTION') {
+      return res.status(409).json({
+        conflictType: 'TEACHER_RESTRICTION',
+        error: err.message,
+        message: err.message,
+        restriction: err.restriction
+      });
+    }
     console.error('Error al crear horario:', err);
     res.status(500).json({ error: 'Error interno al registrar horario', details: err.message });
   }
@@ -346,7 +366,7 @@ const {
   mapExcelRows,
   parseExcelBuffer
 } = require('../utils/excelParser');
-const { hasOverlap } = require('../utils/overlapValidator');
+const { hasOverlap, validateTeacherRestrictions } = require('../utils/overlapValidator');
 
 // Detecta empalmes de profesor y de aula entre las filas nuevas del Excel y los horarios existentes
 // en BD (origen 'BD'), y entre las propias filas del Excel (origen 'EXCEL').
@@ -556,6 +576,7 @@ async function uploadExcelSchedule(req, res) {
     const classroomsByName = new Map(classroomsRes.rows.map((c) => [normalizeKey(c.name), c]));
 
     const errors = [];
+    const restrictionConflicts = [];
     const pending = []; // filas válidas del Excel, pendientes de insertar
     let replaced = 0;   // horarios de BD sobrescritos con force=true
 
@@ -607,6 +628,54 @@ async function uploadExcelSchedule(req, res) {
 
       const groupCode = (row.group_code && String(row.group_code).trim()) ? String(row.group_code).trim() : null;
 
+      // Validar restricciones horarias del docente (teacher_restrictions) durante el bucle de filas
+      try {
+        await validateTeacherRestrictions(client, {
+          tenant_id: tenantId,
+          teacher_id: teacher.id,
+          day_of_week: day,
+          start_time: startTime,
+          end_time: endTime
+        });
+      } catch (restrErr) {
+        if (restrErr && restrErr.conflictType === 'TEACHER_RESTRICTION') {
+          const reasonVal = restrErr.restriction?.reason || 'No especificado';
+          restrictionConflicts.push({
+            tipo: 'RESTRICCION_DOCENTE',
+            origen: 'RESTRICCION_DOCENTE',
+            codigo: 'RESTRICCION_DOCENTE',
+            conflictType: 'TEACHER_RESTRICTION',
+            fila,
+            mensaje: `Fila ${fila}: ${restrErr.message}`,
+            error: restrErr.message,
+            motivo: reasonVal,
+            restriction: restrErr.restriction,
+            nuevo: {
+              fila,
+              materia: subject.code,
+              profesor: teacher.name,
+              aula: classroom.name,
+              dia: day,
+              hora_inicio: startTime,
+              hora_fin: endTime,
+              grupo: groupCode || 'G1'
+            },
+            existente: {
+              id: restrErr.restriction?.id,
+              materia: `Restricción: ${reasonVal}`,
+              profesor: teacher.name,
+              aula: 'Restricción Docente',
+              dia: restrErr.restriction?.day_of_week || day,
+              hora_inicio: restrErr.restriction?.start_time,
+              hora_fin: restrErr.restriction?.end_time,
+              motivo: reasonVal
+            }
+          });
+        } else {
+          throw restrErr;
+        }
+      }
+
       // Fila válida: se acumula; empalmes e inserción se resuelven después, sobre el conjunto completo
       pending.push({ fila, subject, teacher, classroom, day, startTime, endTime, maxStudents, groupCode });
     }
@@ -632,21 +701,35 @@ async function uploadExcelSchedule(req, res) {
        WHERE s.tenant_id = $1`,
       [tenantId]
     );
-    const conflicts = detectOverlaps(pending, existingRes.rows);
+    const conflicts = [...restrictionConflicts, ...detectOverlaps(pending, existingRes.rows)];
 
     if (conflicts.length > 0) {
       const dbConflicts = conflicts.filter((c) => c.origen === 'BD');
       const excelConflicts = conflicts.filter((c) => c.origen === 'EXCEL');
 
-      // Sin confirmación explícita: se aborta y se informa quién choca con quién
-      if (!force) {
+      // Sin confirmación explícita o si existen restricciones docentes: se aborta y se informa el detalle
+      if (!force || restrictionConflicts.length > 0) {
         await client.query('ROLLBACK');
         return res.status(409).json({
           success: false,
-          conflictType: 'SCHEDULE_OVERLAP',
-          error: 'Se detectaron empalmes. No se guardó ningún registro. Reenvíe con force=true para sobrescribir los horarios existentes en la base de datos.',
-          requiresForce: dbConflicts.length > 0 && excelConflicts.length === 0,
-          conflicts
+          conflictType:
+            restrictionConflicts.length > 0 && dbConflicts.length === 0 && excelConflicts.length === 0
+              ? 'TEACHER_RESTRICTION'
+              : 'SCHEDULE_OVERLAP',
+          error:
+            restrictionConflicts.length > 0
+              ? 'Se detectaron colisiones con restricciones horarias de docentes (RESTRICCION_DOCENTE). No se guardó ningún registro.'
+              : 'Se detectaron empalmes. No se guardó ningún registro. Reenvíe con force=true para sobrescribir los horarios existentes en la base de datos.',
+          requiresForce: dbConflicts.length > 0 && excelConflicts.length === 0 && restrictionConflicts.length === 0,
+          conflicts,
+          errors: restrictionConflicts.map((rc) => ({
+            fila: rc.fila,
+            codigo: 'RESTRICCION_DOCENTE',
+            origen: 'RESTRICCION_DOCENTE',
+            error: rc.mensaje,
+            motivo: rc.motivo,
+            restriction: rc.restriction
+          }))
         });
       }
 
@@ -808,8 +891,28 @@ async function getAvailableSubstitutes(req, res) {
              AND s.end_time > ?
              AND s.id != ?
          )
+         AND NOT EXISTS (
+           SELECT 1 FROM teacher_restrictions tr
+           WHERE tr.tenant_id = ?
+             AND tr.teacher_id = u.id
+             AND tr.day_of_week = ?
+             AND tr.start_time < ?
+             AND tr.end_time > ?
+         )
        ORDER BY name ASC`,
-      [tenantId, schedule.teacher_id, tenantId, schedule.day_of_week, schedule.end_time, schedule.start_time, schedule.id]
+      [
+        tenantId,
+        schedule.teacher_id,
+        tenantId,
+        schedule.day_of_week,
+        schedule.end_time,
+        schedule.start_time,
+        schedule.id,
+        tenantId,
+        schedule.day_of_week,
+        schedule.end_time,
+        schedule.start_time
+      ]
     );
 
     return res.status(200).json(availableSubstitutes);
@@ -879,6 +982,15 @@ async function transferSchedule(req, res) {
 
     const substituteTeacher = teacherRes.rows[0];
 
+    // 2.5. Verificar que el substitute_teacher_id no tenga restricciones horarias en teacher_restrictions
+    await validateTeacherRestrictions(client, {
+      tenant_id: tenantId,
+      teacher_id: substitute_teacher_id,
+      day_of_week: schedule.day_of_week,
+      start_time: schedule.start_time,
+      end_time: schedule.end_time
+    });
+
     // 3. Verificar de nuevo que el substitute_teacher_id no tenga empalmes de horario
     const conflictRes = await client.query(
       `SELECT s.id, s.start_time, s.end_time, sub.name as subject_name
@@ -946,6 +1058,14 @@ async function transferSchedule(req, res) {
       try {
         await client.query('ROLLBACK');
       } catch (_) {}
+    }
+    if (err && err.conflictType === 'TEACHER_RESTRICTION') {
+      return res.status(409).json({
+        conflictType: 'TEACHER_RESTRICTION',
+        error: err.message,
+        message: err.message,
+        restriction: err.restriction
+      });
     }
     console.error('Error al transferir horario:', err);
     return res.status(500).json({ error: 'Error interno al transferir horario', details: err.message });

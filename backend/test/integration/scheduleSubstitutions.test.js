@@ -79,6 +79,17 @@ describe('Épica 3: Mantenimiento Operativo y Trazabilidad (Tasks 3.1, 3.2 y 3.3
     identificador: 'DOC-904'
   };
 
+  const teacherRestricted = {
+    id: 'usr-prof-restricted',
+    tenant_id: 'tenant-itc',
+    name: 'Profesor Restringido',
+    nombre: 'Profesor',
+    apellidos: 'Restringido',
+    email: 'restringido@pavilion.com',
+    role_id: 'role-teacher',
+    identificador: 'DOC-905'
+  };
+
   let targetScheduleId = 'sch-target-subst';
   let busyScheduleId = 'sch-busy-subst';
 
@@ -86,9 +97,10 @@ describe('Épica 3: Mantenimiento Operativo y Trazabilidad (Tasks 3.1, 3.2 y 3.3
     await initDatabase();
 
     // Limpieza preventiva
+    await pool.query("DELETE FROM teacher_restrictions WHERE teacher_id = 'usr-prof-restricted'");
     await pool.query("DELETE FROM schedule_substitutions WHERE tenant_id IN ('tenant-itc', 'tenant-upn')");
     await pool.query("DELETE FROM schedules WHERE id IN ('sch-target-subst', 'sch-busy-subst')");
-    await pool.query("DELETE FROM users WHERE id IN ('usr-prof-orig', 'usr-prof-avail', 'usr-prof-busy', 'usr-prof-other-tenant', 'usr-coord-subst')");
+    await pool.query("DELETE FROM users WHERE id IN ('usr-prof-orig', 'usr-prof-avail', 'usr-prof-busy', 'usr-prof-other-tenant', 'usr-prof-restricted', 'usr-coord-subst')");
     await pool.query("DELETE FROM subjects WHERE id = 'sub-test-subst'");
     await pool.query("DELETE FROM classrooms WHERE id = 'cr-test-subst'");
 
@@ -100,13 +112,22 @@ describe('Épica 3: Mantenimiento Operativo y Trazabilidad (Tasks 3.1, 3.2 y 3.3
        ($1, $2, $3, $4, $5, $6, $7),
        ($8, $9, $10, $11, $12, $13, $14),
        ($15, $16, $17, $18, $19, $20, $21),
-       ($22, $23, $24, $25, $26, $27, $28)`,
+       ($22, $23, $24, $25, $26, $27, $28),
+       ($29, $30, $31, $32, $33, $34, $35)`,
       [
         teacherOriginal.id, teacherOriginal.tenant_id, teacherOriginal.nombre, teacherOriginal.apellidos, teacherOriginal.email, teacherOriginal.role_id, teacherOriginal.identificador,
         teacherAvailable.id, teacherAvailable.tenant_id, teacherAvailable.nombre, teacherAvailable.apellidos, teacherAvailable.email, teacherAvailable.role_id, teacherAvailable.identificador,
         teacherBusy.id, teacherBusy.tenant_id, teacherBusy.nombre, teacherBusy.apellidos, teacherBusy.email, teacherBusy.role_id, teacherBusy.identificador,
-        otherTenantTeacher.id, otherTenantTeacher.tenant_id, otherTenantTeacher.nombre, otherTenantTeacher.apellidos, otherTenantTeacher.email, otherTenantTeacher.role_id, otherTenantTeacher.identificador
+        otherTenantTeacher.id, otherTenantTeacher.tenant_id, otherTenantTeacher.nombre, otherTenantTeacher.apellidos, otherTenantTeacher.email, otherTenantTeacher.role_id, otherTenantTeacher.identificador,
+        teacherRestricted.id, teacherRestricted.tenant_id, teacherRestricted.nombre, teacherRestricted.apellidos, teacherRestricted.email, teacherRestricted.role_id, teacherRestricted.identificador
       ]
+    );
+
+    // 1.5. Registrar restricción horaria para teacherRestricted en Martes 08:30 - 09:30 (cruza con 08:00 - 10:00)
+    await pool.query(
+      `INSERT INTO teacher_restrictions (id, tenant_id, teacher_id, day_of_week, start_time, end_time, reason)
+       VALUES ('tr-subst-test-1', 'tenant-itc', $1, 'Martes', '08:30', '09:30', 'Comisión institucional')`,
+      [teacherRestricted.id]
     );
 
     // 2. Insertar materia y aula
@@ -136,9 +157,10 @@ describe('Épica 3: Mantenimiento Operativo y Trazabilidad (Tasks 3.1, 3.2 y 3.3
   });
 
   afterAll(async () => {
+    await pool.query("DELETE FROM teacher_restrictions WHERE teacher_id = 'usr-prof-restricted'");
     await pool.query("DELETE FROM schedule_substitutions WHERE tenant_id IN ('tenant-itc', 'tenant-upn')");
     await pool.query("DELETE FROM schedules WHERE id IN ('sch-target-subst', 'sch-busy-subst')");
-    await pool.query("DELETE FROM users WHERE id IN ('usr-prof-orig', 'usr-prof-avail', 'usr-prof-busy', 'usr-prof-other-tenant', 'usr-coord-subst')");
+    await pool.query("DELETE FROM users WHERE id IN ('usr-prof-orig', 'usr-prof-avail', 'usr-prof-busy', 'usr-prof-other-tenant', 'usr-prof-restricted', 'usr-coord-subst')");
     await pool.query("DELETE FROM subjects WHERE id = 'sub-test-subst'");
     await pool.query("DELETE FROM classrooms WHERE id = 'cr-test-subst'");
   });
@@ -205,7 +227,10 @@ describe('Épica 3: Mantenimiento Operativo y Trazabilidad (Tasks 3.1, 3.2 y 3.3
       // 4. Debe excluir profesores de otro tenant
       expect(substituteIds).not.toContain(otherTenantTeacher.id);
 
-      // 5. Verificar estructura de campos solicitada: id, name, email, identifier
+      // 5. Debe excluir profesores con restricciones horarias en teacher_restrictions que crucen con la clase
+      expect(substituteIds).not.toContain(teacherRestricted.id);
+
+      // 6. Verificar estructura de campos solicitada: id, name, email, identifier
       const availObj = res.body.find(s => s.id === teacherAvailable.id);
       expect(availObj).toBeDefined();
       expect(availObj.id).toBe(teacherAvailable.id);
@@ -267,6 +292,30 @@ describe('Épica 3: Mantenimiento Operativo y Trazabilidad (Tasks 3.1, 3.2 y 3.3
       // Verificar que no se insertó ninguna sustitución
       const substCheck = await pool.query('SELECT * FROM schedule_substitutions WHERE schedule_id = $1', [targetScheduleId]);
       expect(substCheck.rows.length).toBe(0);
+    });
+
+    it('debe rechazar con HTTP 409 y conflictType TEACHER_RESTRICTION si el docente suplente tiene restricción horaria en esa franja', async () => {
+      const res = await request(app)
+        .post(`/api/schedules/${targetScheduleId}/transfer`)
+        .set('Authorization', `Bearer ${coordToken}`)
+        .send({
+          substitute_teacher_id: teacherRestricted.id,
+          reason: 'Intento de suplencia en horario restringido'
+        });
+
+      expect(res.status).toBe(409);
+      expect(res.body.conflictType).toBe('TEACHER_RESTRICTION');
+      expect(res.body.error).toContain('Profesor Restringido');
+      expect(res.body.restriction).toMatchObject({
+        day_of_week: 'Martes',
+        start_time: '08:30',
+        end_time: '09:30',
+        reason: 'Comisión institucional'
+      });
+
+      // Verificar que el horario original sigue intacto tras el rollback
+      const schedCheck = await pool.query('SELECT teacher_id FROM schedules WHERE id = $1', [targetScheduleId]);
+      expect(schedCheck.rows[0].teacher_id).toBe(teacherOriginal.id);
     });
 
     it('debe ejecutar la reasignación exitosamente, registrar en schedule_substitutions y actualizar schedules (HTTP 200)', async () => {
