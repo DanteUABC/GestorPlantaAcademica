@@ -1510,7 +1510,7 @@
                 {{ restrictionError }}
               </v-alert>
 
-              <v-form ref="restrictionFormRef" v-model="isRestrictionFormValid" @submit.prevent="submitTeacherRestriction" data-testid="form-teacher-restriction">
+              <v-form ref="formRef" v-model="isRestrictionFormValid" @submit.prevent="submitTeacherRestriction" data-testid="form-teacher-restriction">
                 <v-row dense>
                   <v-col cols="12" sm="4">
                     <v-select
@@ -1534,6 +1534,7 @@
                       :rules="restrictionStartTimeRules"
                       hide-details="auto"
                       data-testid="select-restriction-start"
+                      @update:model-value="formRef?.validate()"
                     ></v-select>
                   </v-col>
                   <v-col cols="6" sm="4">
@@ -1544,10 +1545,9 @@
                       variant="outlined"
                       density="compact"
                       :rules="restrictionEndTimeRules"
-                      :error="isRestrictionTimeInvalid"
-                      :error-messages="isRestrictionTimeInvalid ? ['La hora de inicio debe ser menor a la hora de fin'] : []"
                       hide-details="auto"
                       data-testid="select-restriction-end"
+                      @update:model-value="formRef?.validate()"
                     ></v-select>
                   </v-col>
                   <v-col cols="12" sm="8" class="mt-2">
@@ -1577,15 +1577,6 @@
                     </v-btn>
                   </v-col>
                 </v-row>
-
-                <div
-                  v-if="isRestrictionTimeInvalid"
-                  class="text-error text-caption font-weight-medium mt-2 d-flex align-center"
-                  data-testid="restriction-time-error"
-                >
-                  <v-icon icon="mdi-alert-circle-outline" size="14" class="mr-1"></v-icon>
-                  La hora de inicio debe ser menor a la hora de fin.
-                </div>
               </v-form>
             </v-card>
 
@@ -1608,24 +1599,19 @@
                     :key="r.id"
                     color="error"
                     variant="tonal"
-                    closable
-                    close-icon="mdi-close-circle-outline"
                     class="font-weight-medium py-4 px-3"
                     :data-testid="'chip-restriction-' + r.id"
-                    @click:close="openDeleteRestrictionConfirm(r)"
                   >
                     <span :data-testid="'text-restriction-' + r.id">
                       [{{ r.day_of_week }} {{ r.start_time }} - {{ r.end_time }}] • {{ r.reason || 'Sin motivo especificado' }}
                     </span>
-                    <v-btn
-                      icon="mdi-close-circle-outline"
-                      variant="text"
-                      size="x-small"
-                      color="error"
-                      class="ml-2"
-                      :data-testid="'btn-delete-restriction-' + r.id"
-                      @click.stop="openDeleteRestrictionConfirm(r)"
-                    ></v-btn>
+                    <template #append>
+                      <v-icon
+                        class="ml-2 cursor-pointer"
+                        :data-testid="'btn-delete-restriction-' + r.id"
+                        @click.stop="openConfirmDialog(r)"
+                      >mdi-close-circle-outline</v-icon>
+                    </template>
                   </v-chip>
                 </div>
               </template>
@@ -1790,7 +1776,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, watch } from 'vue';
+import { ref, computed, onMounted, watch, nextTick } from 'vue';
 import { useAuthStore } from '../stores/authStore';
 import api from '../api/client';
 import ExcelScheduleUploader from '../components/ExcelScheduleUploader.vue';
@@ -1941,7 +1927,8 @@ const savingRestriction = ref(false);
 const deletingRestriction = ref(false);
 const restrictionError = ref('');
 const isRestrictionFormValid = ref(true);
-const restrictionFormRef = ref(null);
+const formRef = ref(null);
+const restrictionFormRef = formRef;
 const deleteRestrictionDialog = ref(false);
 const restrictionToDelete = ref(null);
 
@@ -1961,15 +1948,19 @@ const restrictionForm = ref({
   reason: ''
 });
 
-function parseRestrictionTimeToMinutes(timeStr) {
+const startTime = computed(() => restrictionForm.value.start_time);
+const endTime = computed(() => restrictionForm.value.end_time);
+
+function timeToMinutes(timeStr) {
   if (!timeStr || typeof timeStr !== 'string' || !timeStr.includes(':')) return NaN;
   const [h, m] = timeStr.split(':').map(Number);
   return h * 60 + m;
 }
+const parseRestrictionTimeToMinutes = timeToMinutes;
 
 const isRestrictionTimeInvalid = computed(() => {
-  const startMin = parseRestrictionTimeToMinutes(restrictionForm.value.start_time);
-  const endMin = parseRestrictionTimeToMinutes(restrictionForm.value.end_time);
+  const startMin = timeToMinutes(restrictionForm.value.start_time);
+  const endMin = timeToMinutes(restrictionForm.value.end_time);
   if (Number.isNaN(startMin) || Number.isNaN(endMin)) return false;
   return startMin >= endMin;
 });
@@ -1979,14 +1970,17 @@ const restrictionDayRules = [
 ];
 
 const restrictionStartTimeRules = [
-  v => !!v || 'La hora de inicio es obligatoria',
-  () => !isRestrictionTimeInvalid.value || 'La hora de inicio debe ser menor a la hora de fin'
+  v => !endTime.value || timeToMinutes(v) < timeToMinutes(endTime.value) || 'La hora de inicio debe ser menor a la hora de fin'
 ];
 
 const restrictionEndTimeRules = [
-  v => !!v || 'La hora de fin es obligatoria',
-  () => !isRestrictionTimeInvalid.value || 'La hora de inicio debe ser menor a la hora de fin'
+  v => !startTime.value || timeToMinutes(v) > timeToMinutes(startTime.value) || 'La hora de fin debe ser mayor a la hora de inicio'
 ];
+
+watch([startTime, endTime], async () => {
+  await nextTick();
+  formRef.value?.validate?.();
+});
 
 const isRestrictionSubmitDisabled = computed(() => {
   return (
@@ -2075,12 +2069,13 @@ async function submitTeacherRestriction() {
   }
 }
 
-function openDeleteRestrictionConfirm(restriction) {
+function openConfirmDialog(restriction) {
   if (!restriction) return;
   restrictionError.value = '';
   restrictionToDelete.value = restriction;
   deleteRestrictionDialog.value = true;
 }
+const openDeleteRestrictionConfirm = openConfirmDialog;
 
 function closeDeleteRestrictionConfirm() {
   if (deletingRestriction.value) return;

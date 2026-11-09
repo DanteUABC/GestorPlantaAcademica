@@ -202,7 +202,7 @@ describe('CoordinatorView.vue - Miniventana Modal de Detalle de Docente (Tarea E
     },
     'v-chip': {
       props: ['color', 'size', 'variant'],
-      template: '<span class="v-chip-stub" :class="color" v-bind="$attrs"><slot /></span>'
+      template: '<span class="v-chip-stub" :class="color" v-bind="$attrs"><slot /><slot name="append" /></span>'
     },
     'v-snackbar': {
       props: ['modelValue', 'color'],
@@ -463,7 +463,7 @@ describe('CoordinatorView.vue - Miniventana Modal de Detalle de Docente (Tarea E
     expect(chip2.text()).toContain('[Miércoles 14:00 - 16:00] • Comité académico');
   });
 
-  it('Criterio 7: Validación en cliente inhabilita el botón de envío y muestra error visual si hora de inicio >= hora de fin', async () => {
+  it('Criterio 7: Validación en cliente independiente en inicio/fin, sin reglas en Motivo, e inhabilita envío si hora de inicio >= hora de fin', async () => {
     const wrapper = await createWrapper();
     wrapper.vm.openTeacherDetailModal(mockTeachers[0]);
     wrapper.vm.teacherDetailTab = 'restrictions';
@@ -477,27 +477,36 @@ describe('CoordinatorView.vue - Miniventana Modal de Detalle de Docente (Tarea E
 
     expect(wrapper.vm.isRestrictionTimeInvalid).toBe(true);
 
+    // Verificar mensajes independientes y precisos de las reglas
+    const startRuleResult = wrapper.vm.restrictionStartTimeRules[0]('12:00');
+    const endRuleResult = wrapper.vm.restrictionEndTimeRules[0]('10:00');
+    expect(startRuleResult).toBe('La hora de inicio debe ser menor a la hora de fin');
+    expect(endRuleResult).toBe('La hora de fin debe ser mayor a la hora de inicio');
+
+    // El campo Motivo no tiene reglas de validación de horas
+    const reasonField = wrapper.find('[data-testid="input-restriction-reason"]');
+    expect(reasonField.attributes('rules')).toBeUndefined();
+
     const submitBtn = wrapper.find('[data-testid="btn-add-restriction"]');
     expect(submitBtn.attributes('disabled')).toBeDefined();
-
-    const timeError = wrapper.find('[data-testid="restriction-time-error"]');
-    expect(timeError.exists()).toBe(true);
-    expect(timeError.text()).toContain('La hora de inicio debe ser menor a la hora de fin');
 
     // Igualdad (10:00 >= 10:00) también es inválida
     wrapper.vm.restrictionForm.start_time = '10:00';
     wrapper.vm.restrictionForm.end_time = '10:00';
     await wrapper.vm.$nextTick();
     expect(wrapper.vm.isRestrictionTimeInvalid).toBe(true);
+    expect(wrapper.vm.restrictionStartTimeRules[0]('10:00')).toBe('La hora de inicio debe ser menor a la hora de fin');
+    expect(wrapper.vm.restrictionEndTimeRules[0]('10:00')).toBe('La hora de fin debe ser mayor a la hora de inicio');
     expect(submitBtn.attributes('disabled')).toBeDefined();
 
-    // Rango válido (08:00 < 10:00) habilita el botón y oculta el error
+    // Rango válido (08:00 < 10:00) habilita el botón y aprueba ambas reglas
     wrapper.vm.restrictionForm.start_time = '08:00';
     wrapper.vm.restrictionForm.end_time = '10:00';
     await wrapper.vm.$nextTick();
     expect(wrapper.vm.isRestrictionTimeInvalid).toBe(false);
+    expect(wrapper.vm.restrictionStartTimeRules[0]('08:00')).toBe(true);
+    expect(wrapper.vm.restrictionEndTimeRules[0]('10:00')).toBe(true);
     expect(submitBtn.attributes('disabled')).toBeUndefined();
-    expect(wrapper.find('[data-testid="restriction-time-error"]').exists()).toBe(false);
   });
 
   it('Criterio 8: Alta y eliminación reactiva de restricciones (POST 201 y DELETE con confirmación) preservando el modal abierto', async () => {
