@@ -10,38 +10,6 @@
         <p class="text-body-2 text-grey-darken-1">Plataforma SaaS Multi-tenant para Armado de Horarios</p>
       </div>
 
-      <!-- Quick Demo Access Banner -->
-      <v-card variant="tonal" color="primary" class="pa-3 mb-6" rounded="md">
-        <div class="text-caption font-weight-bold mb-2 text-uppercase d-flex align-center">
-          <v-icon icon="mdi-flash" size="small" class="mr-1"></v-icon>
-          Acceso Rápido de Demostración (1 Clic)
-        </div>
-        <div class="d-flex flex-wrap gap-2">
-          <v-btn
-            size="small"
-            color="purple-accent-4"
-            variant="flat"
-            class="text-none flex-grow-1 mr-1 mb-1"
-            prepend-icon="mdi-account-tie"
-            :loading="quickLoading === 'coordinador'"
-            @click="demoLogin('coordinador')"
-          >
-            Coordinador
-          </v-btn>
-          <v-btn
-            size="small"
-            color="teal-darken-1"
-            variant="flat"
-            class="text-none flex-grow-1 mr-1 mb-1"
-            prepend-icon="mdi-teach"
-            :loading="quickLoading === 'profesor'"
-            @click="demoLogin('profesor')"
-          >
-            Profesor
-          </v-btn>
-        </div>
-      </v-card>
-
       <!-- Alert for error messages -->
       <v-alert
         v-if="errorMessage"
@@ -274,7 +242,6 @@ const authStore = useAuthStore();
 
 const tab = ref('login');
 const loading = ref(false);
-const quickLoading = ref('');
 const errorMessage = ref('');
 const successMessage = ref('');
 const tenants = ref([]);
@@ -380,19 +347,6 @@ async function handleRegister() {
     errorMessage.value = err || 'Error al registrar usuario';
   } finally {
     loading.value = false;
-  }
-}
-
-async function demoLogin(role) {
-  quickLoading.value = role;
-  errorMessage.value = '';
-  try {
-    const user = await authStore.quickLogin(role);
-    await navigateByRole(user.role_name);
-  } catch (err) {
-    errorMessage.value = err || 'Error en acceso rápido demo';
-  } finally {
-    quickLoading.value = '';
   }
 }
 

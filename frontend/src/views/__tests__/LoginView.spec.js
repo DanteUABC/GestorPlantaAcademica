@@ -64,7 +64,7 @@ describe('LoginView.vue - UI de Autenticación', () => {
         expect(wrapper.text()).toContain('Gestor de Planta Académica');
     });
 
-    it('debe contener los métodos para demoLogin', () => {
+    it('no debe renderizar el banner de acceso rápido demo y debe validar inicio por credenciales o SSO', () => {
         const wrapper = mount(LoginView, {
             global: {
                 plugins: [pinia],
@@ -72,6 +72,7 @@ describe('LoginView.vue - UI de Autenticación', () => {
             }
         });
         
+        expect(wrapper.text()).not.toContain('Acceso Rápido de Demostración');
         expect(wrapper.exists()).toBe(true);
     });
 
