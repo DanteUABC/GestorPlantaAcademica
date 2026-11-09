@@ -405,4 +405,169 @@ describe('CoordinatorView.vue - Miniventana Modal de Detalle de Docente (Tarea E
     expect(noSchedMessage.exists()).toBe(true);
     expect(noSchedMessage.text()).toContain('El docente no tiene carga horaria asignada en este periodo.');
   });
+
+  it('Criterio 6: Pestaña "Disponibilidad y Bloqueos de Horario" dispara GET /teachers/:teacherId/restrictions y renderiza chips formateados', async () => {
+    const mockRestrictions = [
+      {
+        id: 'rest-1',
+        teacher_id: 'teach-optimo',
+        day_of_week: 'Lunes',
+        start_time: '07:00',
+        end_time: '09:00',
+        reason: 'Consulta médica'
+      },
+      {
+        id: 'rest-2',
+        teacher_id: 'teach-optimo',
+        day_of_week: 'Miércoles',
+        start_time: '14:00',
+        end_time: '16:00',
+        reason: 'Comité académico'
+      }
+    ];
+
+    api.get.mockImplementation((url) => {
+      if (url.includes('/restrictions')) {
+        return Promise.resolve({ data: mockRestrictions });
+      }
+      if (url.includes('/schedules/coordinator')) {
+        return Promise.resolve({ data: mockSchedules });
+      }
+      if (url.includes('/teachers')) {
+        return Promise.resolve({ data: mockTeachers });
+      }
+      return Promise.resolve({ data: [] });
+    });
+
+    const wrapper = await createWrapper();
+    wrapper.vm.openTeacherDetailModal(mockTeachers[0]);
+    await flushPromises();
+
+    // Cambiar a la pestaña de restricciones
+    const tabRestrictions = wrapper.find('[data-testid="tab-teacher-restrictions"]');
+    expect(tabRestrictions.exists()).toBe(true);
+    expect(tabRestrictions.text()).toContain('Disponibilidad y Bloqueos de Horario');
+
+    await tabRestrictions.trigger('click');
+    await flushPromises();
+
+    expect(api.get).toHaveBeenCalledWith('/teachers/teach-optimo/restrictions');
+    expect(wrapper.vm.restrictionsList).toHaveLength(2);
+
+    const chip1 = wrapper.find('[data-testid="chip-restriction-rest-1"]');
+    expect(chip1.exists()).toBe(true);
+    expect(chip1.text()).toContain('[Lunes 07:00 - 09:00] • Consulta médica');
+
+    const chip2 = wrapper.find('[data-testid="chip-restriction-rest-2"]');
+    expect(chip2.exists()).toBe(true);
+    expect(chip2.text()).toContain('[Miércoles 14:00 - 16:00] • Comité académico');
+  });
+
+  it('Criterio 7: Validación en cliente inhabilita el botón de envío y muestra error visual si hora de inicio >= hora de fin', async () => {
+    const wrapper = await createWrapper();
+    wrapper.vm.openTeacherDetailModal(mockTeachers[0]);
+    wrapper.vm.teacherDetailTab = 'restrictions';
+    await wrapper.vm.$nextTick();
+
+    // Configurar hora de inicio >= hora de fin (ej. 12:00 >= 10:00)
+    wrapper.vm.restrictionForm.day_of_week = 'Martes';
+    wrapper.vm.restrictionForm.start_time = '12:00';
+    wrapper.vm.restrictionForm.end_time = '10:00';
+    await wrapper.vm.$nextTick();
+
+    expect(wrapper.vm.isRestrictionTimeInvalid).toBe(true);
+
+    const submitBtn = wrapper.find('[data-testid="btn-add-restriction"]');
+    expect(submitBtn.attributes('disabled')).toBeDefined();
+
+    const timeError = wrapper.find('[data-testid="restriction-time-error"]');
+    expect(timeError.exists()).toBe(true);
+    expect(timeError.text()).toContain('La hora de inicio debe ser menor a la hora de fin');
+
+    // Igualdad (10:00 >= 10:00) también es inválida
+    wrapper.vm.restrictionForm.start_time = '10:00';
+    wrapper.vm.restrictionForm.end_time = '10:00';
+    await wrapper.vm.$nextTick();
+    expect(wrapper.vm.isRestrictionTimeInvalid).toBe(true);
+    expect(submitBtn.attributes('disabled')).toBeDefined();
+
+    // Rango válido (08:00 < 10:00) habilita el botón y oculta el error
+    wrapper.vm.restrictionForm.start_time = '08:00';
+    wrapper.vm.restrictionForm.end_time = '10:00';
+    await wrapper.vm.$nextTick();
+    expect(wrapper.vm.isRestrictionTimeInvalid).toBe(false);
+    expect(submitBtn.attributes('disabled')).toBeUndefined();
+    expect(wrapper.find('[data-testid="restriction-time-error"]').exists()).toBe(false);
+  });
+
+  it('Criterio 8: Alta y eliminación reactiva de restricciones (POST 201 y DELETE con confirmación) preservando el modal abierto', async () => {
+    api.get.mockImplementation((url) => {
+      if (url.includes('/restrictions')) {
+        return Promise.resolve({ data: [] });
+      }
+      if (url.includes('/schedules/coordinator')) {
+        return Promise.resolve({ data: mockSchedules });
+      }
+      if (url.includes('/teachers')) {
+        return Promise.resolve({ data: mockTeachers });
+      }
+      return Promise.resolve({ data: [] });
+    });
+
+    const createdRestriction = {
+      id: 'rest-new-99',
+      teacher_id: 'teach-optimo',
+      day_of_week: 'Jueves',
+      start_time: '09:00',
+      end_time: '11:00',
+      reason: 'Investigación SNI'
+    };
+    api.post.mockResolvedValueOnce({ status: 201, data: createdRestriction });
+    api.delete.mockResolvedValueOnce({ status: 200, data: { message: 'Restricción eliminada', id: 'rest-new-99' } });
+
+    const wrapper = await createWrapper();
+    wrapper.vm.openTeacherDetailModal(mockTeachers[0]);
+    wrapper.vm.teacherDetailTab = 'restrictions';
+    await flushPromises();
+
+    // 1. Alta de restricción (POST)
+    wrapper.vm.restrictionForm.day_of_week = 'Jueves';
+    wrapper.vm.restrictionForm.start_time = '09:00';
+    wrapper.vm.restrictionForm.end_time = '11:00';
+    wrapper.vm.restrictionForm.reason = 'Investigación SNI';
+    await wrapper.vm.$nextTick();
+
+    await wrapper.vm.submitTeacherRestriction();
+    await flushPromises();
+
+    expect(api.post).toHaveBeenCalledWith('/teachers/teach-optimo/restrictions', {
+      day_of_week: 'Jueves',
+      start_time: '09:00',
+      end_time: '11:00',
+      reason: 'Investigación SNI'
+    });
+    expect(wrapper.vm.restrictionsList).toHaveLength(1);
+    expect(wrapper.find('[data-testid="chip-restriction-rest-new-99"]').text()).toContain('[Jueves 09:00 - 11:00] • Investigación SNI');
+    expect(wrapper.vm.teacherDetailDialog).toBe(true);
+
+    // 2. Abrir confirmación de borrado y confirmar DELETE
+    const deleteBtn = wrapper.find('[data-testid="btn-delete-restriction-rest-new-99"]');
+    expect(deleteBtn.exists()).toBe(true);
+    await deleteBtn.trigger('click');
+    await wrapper.vm.$nextTick();
+
+    expect(wrapper.vm.deleteRestrictionDialog).toBe(true);
+    const confirmDeleteDialog = wrapper.find('[data-testid="dialog-confirm-delete-restriction"]');
+    expect(confirmDeleteDialog.exists()).toBe(true);
+
+    const confirmBtn = confirmDeleteDialog.find('[data-testid="btn-confirm-delete-restriction"]');
+    await confirmBtn.trigger('click');
+    await flushPromises();
+
+    expect(api.delete).toHaveBeenCalledWith('/teachers/restrictions/rest-new-99');
+    expect(wrapper.vm.restrictionsList).toHaveLength(0);
+    expect(wrapper.find('[data-testid="chip-restriction-rest-new-99"]').exists()).toBe(false);
+    // El modal principal del docente permanece abierto
+    expect(wrapper.vm.teacherDetailDialog).toBe(true);
+  });
 });

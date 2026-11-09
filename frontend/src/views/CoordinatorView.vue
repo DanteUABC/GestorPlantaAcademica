@@ -1269,6 +1269,26 @@
 
           <v-divider class="mb-4"></v-divider>
 
+          <!-- PESTAÑAS DEL DETALLE DEL DOCENTE -->
+          <v-tabs
+            v-model="teacherDetailTab"
+            color="primary"
+            density="compact"
+            class="mb-4 border-b"
+            data-testid="teacher-detail-tabs"
+            @update:model-value="handleTeacherDetailTabChange"
+          >
+            <v-tab value="general" class="text-none font-weight-bold" data-testid="tab-teacher-general">
+              <v-icon start icon="mdi-account-details-outline" size="18"></v-icon>
+              Resumen y Carga Académica
+            </v-tab>
+            <v-tab value="restrictions" class="text-none font-weight-bold" data-testid="tab-teacher-restrictions" @click="onSelectRestrictionsTab">
+              <v-icon start icon="mdi-calendar-lock-outline" size="18"></v-icon>
+              Disponibilidad y Bloqueos de Horario
+            </v-tab>
+          </v-tabs>
+
+          <div v-show="teacherDetailTab === 'general'" data-testid="teacher-detail-general-content">
           <!-- SECCIÓN: GOBERNANZA DE ACCESO Y CORREO INSTITUCIONAL -->
           <v-card variant="outlined" rounded="lg" class="pa-4 mb-4 bg-slate-50" data-testid="section-access-governance">
             <div class="d-flex align-center justify-space-between mb-2">
@@ -1461,10 +1481,224 @@
               </div>
             </template>
           </div>
+          </div>
+
+          <!-- SECCIÓN PESTAÑA: DISPONIBILIDAD Y BLOQUEOS DE HORARIO -->
+          <div v-show="teacherDetailTab === 'restrictions'" data-testid="section-teacher-restrictions">
+            <v-card variant="outlined" rounded="lg" class="pa-4 mb-4 bg-slate-50" data-testid="card-teacher-restrictions-form">
+              <div class="d-flex align-center justify-space-between mb-3">
+                <span class="text-subtitle-2 font-weight-bold text-slate-800">
+                  <v-icon icon="mdi-clock-alert-outline" class="mr-1 text-primary" size="small"></v-icon>
+                  Registrar Nuevo Bloqueo de Horario
+                </span>
+                <v-chip size="x-small" color="primary" variant="tonal" class="font-weight-bold">
+                  Disponibilidad y Bloqueos de Horario
+                </v-chip>
+              </div>
+
+              <v-alert
+                v-if="restrictionError"
+                type="error"
+                variant="tonal"
+                density="compact"
+                rounded="lg"
+                class="mb-3 text-caption"
+                closable
+                data-testid="alert-restriction-error"
+                @click:close="restrictionError = ''"
+              >
+                {{ restrictionError }}
+              </v-alert>
+
+              <v-form ref="restrictionFormRef" v-model="isRestrictionFormValid" @submit.prevent="submitTeacherRestriction" data-testid="form-teacher-restriction">
+                <v-row dense>
+                  <v-col cols="12" sm="4">
+                    <v-select
+                      v-model="restrictionForm.day_of_week"
+                      :items="restrictionDays"
+                      label="Día de la semana"
+                      variant="outlined"
+                      density="compact"
+                      :rules="restrictionDayRules"
+                      hide-details="auto"
+                      data-testid="select-restriction-day"
+                    ></v-select>
+                  </v-col>
+                  <v-col cols="6" sm="4">
+                    <v-select
+                      v-model="restrictionForm.start_time"
+                      :items="restrictionTimeSlots"
+                      label="Hora de inicio"
+                      variant="outlined"
+                      density="compact"
+                      :rules="restrictionStartTimeRules"
+                      hide-details="auto"
+                      data-testid="select-restriction-start"
+                    ></v-select>
+                  </v-col>
+                  <v-col cols="6" sm="4">
+                    <v-select
+                      v-model="restrictionForm.end_time"
+                      :items="restrictionTimeSlots"
+                      label="Hora de fin"
+                      variant="outlined"
+                      density="compact"
+                      :rules="restrictionEndTimeRules"
+                      :error="isRestrictionTimeInvalid"
+                      :error-messages="isRestrictionTimeInvalid ? ['La hora de inicio debe ser menor a la hora de fin'] : []"
+                      hide-details="auto"
+                      data-testid="select-restriction-end"
+                    ></v-select>
+                  </v-col>
+                  <v-col cols="12" sm="8" class="mt-2">
+                    <v-text-field
+                      v-model="restrictionForm.reason"
+                      label="Motivo (opcional)"
+                      placeholder="Ej. Junta médica, Investigación, Otro..."
+                      variant="outlined"
+                      density="compact"
+                      hide-details="auto"
+                      data-testid="input-restriction-reason"
+                    ></v-text-field>
+                  </v-col>
+                  <v-col cols="12" sm="4" class="mt-2 d-flex align-center">
+                    <v-btn
+                      type="submit"
+                      color="primary"
+                      variant="flat"
+                      block
+                      class="text-none font-weight-bold"
+                      prepend-icon="mdi-plus-circle-outline"
+                      :loading="savingRestriction"
+                      :disabled="isRestrictionSubmitDisabled"
+                      data-testid="btn-add-restriction"
+                    >
+                      Agregar bloqueo
+                    </v-btn>
+                  </v-col>
+                </v-row>
+
+                <div
+                  v-if="isRestrictionTimeInvalid"
+                  class="text-error text-caption font-weight-medium mt-2 d-flex align-center"
+                  data-testid="restriction-time-error"
+                >
+                  <v-icon icon="mdi-alert-circle-outline" size="14" class="mr-1"></v-icon>
+                  La hora de inicio debe ser menor a la hora de fin.
+                </div>
+              </v-form>
+            </v-card>
+
+            <!-- LISTA DE BLOQUEOS ACTIVOS -->
+            <div class="mt-3" data-testid="list-teacher-restrictions">
+              <div class="d-flex align-center justify-space-between mb-2">
+                <span class="text-subtitle-2 font-weight-bold text-slate-800">
+                  <v-icon icon="mdi-calendar-remove-outline" class="mr-1 text-primary" size="small"></v-icon>
+                  Bloqueos de Horario Activos
+                </span>
+                <span class="text-caption font-weight-bold text-primary" data-testid="restrictions-count-badge">
+                  {{ restrictionsList.length }} bloqueos
+                </span>
+              </div>
+
+              <template v-if="restrictionsList.length > 0">
+                <div class="d-flex flex-wrap ga-2" data-testid="restrictions-chips-container">
+                  <v-chip
+                    v-for="r in restrictionsList"
+                    :key="r.id"
+                    color="error"
+                    variant="tonal"
+                    closable
+                    close-icon="mdi-close-circle-outline"
+                    class="font-weight-medium py-4 px-3"
+                    :data-testid="'chip-restriction-' + r.id"
+                    @click:close="openDeleteRestrictionConfirm(r)"
+                  >
+                    <span :data-testid="'text-restriction-' + r.id">
+                      [{{ r.day_of_week }} {{ r.start_time }} - {{ r.end_time }}] • {{ r.reason || 'Sin motivo especificado' }}
+                    </span>
+                    <v-btn
+                      icon="mdi-close-circle-outline"
+                      variant="text"
+                      size="x-small"
+                      color="error"
+                      class="ml-2"
+                      :data-testid="'btn-delete-restriction-' + r.id"
+                      @click.stop="openDeleteRestrictionConfirm(r)"
+                    ></v-btn>
+                  </v-chip>
+                </div>
+              </template>
+              <template v-else>
+                <div
+                  class="pa-4 bg-grey-lighten-4 rounded text-center text-body-2 text-grey-darken-1 border"
+                  data-testid="no-teacher-restrictions-message"
+                >
+                  <v-icon icon="mdi-check-circle-outline" class="mr-2 text-success" size="small"></v-icon>
+                  El docente no tiene bloqueos ni restricciones de horario registradas.
+                </div>
+              </template>
+            </div>
+          </div>
         </v-card-text>
         <v-card-actions class="pa-4 bg-grey-lighten-4 justify-end">
           <v-btn color="primary" variant="flat" class="text-none font-weight-bold" @click="teacherDetailDialog = false" data-testid="btn-close-detail-modal">
             Cerrar
+          </v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
+    <!-- SUBDIÁLOGO MODAL: CONFIRMACIÓN DE ELIMINACIÓN DE RESTRICCIÓN DE HORARIO -->
+    <v-dialog
+      v-model="deleteRestrictionDialog"
+      max-width="440"
+      persistent
+      data-testid="dialog-confirm-delete-restriction"
+    >
+      <v-card rounded="lg" elevation="6">
+        <v-card-title class="bg-error text-white pa-4 d-flex justify-space-between align-center">
+          <div class="d-flex align-center">
+            <v-icon icon="mdi-delete-alert-outline" class="mr-2"></v-icon>
+            <span class="font-weight-bold">Eliminar Bloqueo de Horario</span>
+          </div>
+          <v-btn
+            icon="mdi-close"
+            variant="text"
+            color="white"
+            density="compact"
+            :disabled="deletingRestriction"
+            data-testid="btn-close-delete-restriction"
+            @click="closeDeleteRestrictionConfirm"
+          ></v-btn>
+        </v-card-title>
+        <v-card-text class="pa-4">
+          <p class="text-body-2 text-slate-800" data-testid="text-confirm-delete-restriction">
+            ¿Está seguro de eliminar el bloqueo
+            <strong v-if="restrictionToDelete">
+              [{{ restrictionToDelete.day_of_week }} {{ restrictionToDelete.start_time }} - {{ restrictionToDelete.end_time }}] • {{ restrictionToDelete.reason || 'Sin motivo especificado' }}
+            </strong>?
+          </p>
+        </v-card-text>
+        <v-card-actions class="pa-4 bg-grey-lighten-4 justify-end ga-2">
+          <v-btn
+            variant="text"
+            class="text-none font-weight-medium"
+            :disabled="deletingRestriction"
+            data-testid="btn-cancel-delete-restriction"
+            @click="closeDeleteRestrictionConfirm"
+          >
+            Cancelar
+          </v-btn>
+          <v-btn
+            color="error"
+            variant="flat"
+            class="text-none font-weight-bold"
+            :loading="deletingRestriction"
+            data-testid="btn-confirm-delete-restriction"
+            @click="confirmDeleteRestriction"
+          >
+            Eliminar Bloqueo
           </v-btn>
         </v-card-actions>
       </v-card>
@@ -1698,6 +1932,183 @@ const filteredTeachersList = computed(() => {
 
 const teacherDetailDialog = ref(false);
 const selectedTeacherDetail = ref(null);
+const teacherDetailTab = ref('general');
+
+// Estado y lógica de Disponibilidad y Bloqueos de Horario (teacher_restrictions)
+const restrictionsList = ref([]);
+const loadingRestrictions = ref(false);
+const savingRestriction = ref(false);
+const deletingRestriction = ref(false);
+const restrictionError = ref('');
+const isRestrictionFormValid = ref(true);
+const restrictionFormRef = ref(null);
+const deleteRestrictionDialog = ref(false);
+const restrictionToDelete = ref(null);
+
+const restrictionDays = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
+const restrictionTimeSlots = [
+  '07:00', '07:30', '08:00', '08:30', '09:00', '09:30',
+  '10:00', '10:30', '11:00', '11:30', '12:00', '12:30',
+  '13:00', '13:30', '14:00', '14:30', '15:00', '15:30',
+  '16:00', '16:30', '17:00', '17:30', '18:00', '18:30',
+  '19:00', '19:30', '20:00', '20:30', '21:00', '21:30', '22:00'
+];
+
+const restrictionForm = ref({
+  day_of_week: 'Lunes',
+  start_time: '08:00',
+  end_time: '10:00',
+  reason: ''
+});
+
+function parseRestrictionTimeToMinutes(timeStr) {
+  if (!timeStr || typeof timeStr !== 'string' || !timeStr.includes(':')) return NaN;
+  const [h, m] = timeStr.split(':').map(Number);
+  return h * 60 + m;
+}
+
+const isRestrictionTimeInvalid = computed(() => {
+  const startMin = parseRestrictionTimeToMinutes(restrictionForm.value.start_time);
+  const endMin = parseRestrictionTimeToMinutes(restrictionForm.value.end_time);
+  if (Number.isNaN(startMin) || Number.isNaN(endMin)) return false;
+  return startMin >= endMin;
+});
+
+const restrictionDayRules = [
+  v => !!v || 'El día de la semana es obligatorio'
+];
+
+const restrictionStartTimeRules = [
+  v => !!v || 'La hora de inicio es obligatoria',
+  () => !isRestrictionTimeInvalid.value || 'La hora de inicio debe ser menor a la hora de fin'
+];
+
+const restrictionEndTimeRules = [
+  v => !!v || 'La hora de fin es obligatoria',
+  () => !isRestrictionTimeInvalid.value || 'La hora de inicio debe ser menor a la hora de fin'
+];
+
+const isRestrictionSubmitDisabled = computed(() => {
+  return (
+    savingRestriction.value ||
+    !restrictionForm.value.day_of_week ||
+    !restrictionForm.value.start_time ||
+    !restrictionForm.value.end_time ||
+    isRestrictionTimeInvalid.value
+  );
+});
+
+async function fetchTeacherRestrictions(teacherId) {
+  const id = teacherId || selectedTeacherDetail.value?.id;
+  if (!id) return;
+  try {
+    loadingRestrictions.value = true;
+    restrictionError.value = '';
+    const res = await api.get(`/teachers/${id}/restrictions`);
+    if (Array.isArray(res?.data)) {
+      restrictionsList.value = res.data.filter(r => r && r.day_of_week && r.start_time && r.end_time);
+    } else {
+      restrictionsList.value = [];
+    }
+  } catch (err) {
+    restrictionError.value = err.response?.data?.error || err.response?.data?.message || 'Error al cargar las restricciones de horario';
+  } finally {
+    loadingRestrictions.value = false;
+  }
+}
+
+function handleTeacherDetailTabChange(tabVal) {
+  if (tabVal === 'restrictions' && selectedTeacherDetail.value?.id) {
+    fetchTeacherRestrictions(selectedTeacherDetail.value.id);
+  }
+}
+
+function onSelectRestrictionsTab() {
+  teacherDetailTab.value = 'restrictions';
+  if (selectedTeacherDetail.value?.id) {
+    fetchTeacherRestrictions(selectedTeacherDetail.value.id);
+  }
+}
+
+watch(teacherDetailTab, (newVal) => {
+  if (newVal === 'restrictions' && selectedTeacherDetail.value?.id) {
+    fetchTeacherRestrictions(selectedTeacherDetail.value.id);
+  }
+});
+
+async function submitTeacherRestriction() {
+  if (!selectedTeacherDetail.value?.id) return;
+  if (isRestrictionTimeInvalid.value) {
+    restrictionError.value = 'La hora de inicio debe ser menor a la hora de fin.';
+    return;
+  }
+  if (!restrictionForm.value.day_of_week || !restrictionForm.value.start_time || !restrictionForm.value.end_time) {
+    restrictionError.value = 'Seleccione día, hora de inicio y hora de fin.';
+    return;
+  }
+  try {
+    savingRestriction.value = true;
+    restrictionError.value = '';
+    const payload = {
+      day_of_week: restrictionForm.value.day_of_week,
+      start_time: restrictionForm.value.start_time,
+      end_time: restrictionForm.value.end_time,
+      reason: restrictionForm.value.reason ? restrictionForm.value.reason.trim() : null
+    };
+    const res = await api.post(`/teachers/${selectedTeacherDetail.value.id}/restrictions`, payload);
+    const created = res?.data || {
+      id: `restr_${Date.now()}`,
+      teacher_id: selectedTeacherDetail.value.id,
+      ...payload
+    };
+    restrictionsList.value.push(created);
+    restrictionForm.value.reason = '';
+    snackbar.value = {
+      show: true,
+      text: 'Bloqueo de horario registrado exitosamente',
+      color: 'success'
+    };
+  } catch (err) {
+    restrictionError.value = err.response?.data?.error || err.response?.data?.message || 'Error al registrar el bloqueo de horario';
+  } finally {
+    savingRestriction.value = false;
+  }
+}
+
+function openDeleteRestrictionConfirm(restriction) {
+  if (!restriction) return;
+  restrictionError.value = '';
+  restrictionToDelete.value = restriction;
+  deleteRestrictionDialog.value = true;
+}
+
+function closeDeleteRestrictionConfirm() {
+  if (deletingRestriction.value) return;
+  deleteRestrictionDialog.value = false;
+  restrictionToDelete.value = null;
+}
+
+async function confirmDeleteRestriction() {
+  if (!restrictionToDelete.value?.id) return;
+  const deletedId = restrictionToDelete.value.id;
+  try {
+    deletingRestriction.value = true;
+    restrictionError.value = '';
+    await api.delete(`/teachers/restrictions/${deletedId}`);
+    restrictionsList.value = restrictionsList.value.filter(r => r.id !== deletedId);
+    deleteRestrictionDialog.value = false;
+    restrictionToDelete.value = null;
+    snackbar.value = {
+      show: true,
+      text: 'Bloqueo de horario eliminado exitosamente',
+      color: 'success'
+    };
+  } catch (err) {
+    restrictionError.value = err.response?.data?.error || err.response?.data?.message || 'Error al eliminar el bloqueo de horario';
+  } finally {
+    deletingRestriction.value = false;
+  }
+}
 
 const revokeConfirmDialog = ref(false);
 const revokingEmail = ref(false);
@@ -1757,10 +2168,17 @@ async function executeRevokeEmail() {
 
 function openTeacherDetailModal(teach) {
   selectedTeacherDetail.value = teach;
+  teacherDetailTab.value = 'general';
+  restrictionError.value = '';
+  deleteRestrictionDialog.value = false;
+  restrictionToDelete.value = null;
   revokeEmailError.value = '';
   revokeEmailModalError.value = '';
   revokeConfirmDialog.value = false;
   teacherDetailDialog.value = true;
+  if (teach?.id) {
+    fetchTeacherRestrictions(teach.id);
+  }
   emit('teacher-selected', teach);
   emit('open-teacher-detail', teach);
 }
