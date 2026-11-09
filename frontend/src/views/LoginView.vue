@@ -257,8 +257,8 @@ const emailRules = [
 
 const loginForm = ref({
   tenant_id: 'tenant-itc',
-  email: 'coordinador@pavilion.com',
-  password: 'demo123'
+  email: '',
+  password: ''
 });
 
 const roles = [

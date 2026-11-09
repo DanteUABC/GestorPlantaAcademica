@@ -159,17 +159,6 @@ export const useAuthStore = defineStore('auth', {
         this.loading = false;
       }
     },
-    async quickLogin(roleName) {
-      const demoAccounts = {
-        coordinador: { email: 'coordinador@pavilion.com', password: 'demo123', tenant_id: 'tenant-itc' },
-        profesor: { email: 'elena.salgado@pavilion.com', password: 'demo123', tenant_id: 'tenant-itc' }
-      };
-
-      const creds = demoAccounts[roleName.toLowerCase()];
-      if (creds) {
-        return await this.login(creds.email, creds.password, creds.tenant_id);
-      }
-    },
     async logout() {
       try {
         await api.post('/auth/logout');
