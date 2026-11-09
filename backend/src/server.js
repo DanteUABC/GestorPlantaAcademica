@@ -14,6 +14,7 @@ const authController = require('./controllers/authController');
 const catalogController = require('./controllers/catalogController');
 const classroomController = require('./controllers/classroomController');
 const scheduleController = require('./controllers/scheduleController');
+const teacherRestrictionController = require('./controllers/teacherRestrictionController');
 const analyticsRoutes = require('./routes/analyticsRoutes');
 
 const app = express();
@@ -107,6 +108,12 @@ app.delete('/api/classrooms/:id', requireRole(['Coordinador', 'Administrador']),
 app.get('/api/teachers', catalogController.getTeachers);
 app.put('/api/teachers/:id/revoke-email', requireRole(['Coordinador', 'Administrador']), catalogController.revokeTeacherEmail);
 app.post('/api/teachers/:id/deactivate-email', requireRole(['Coordinador', 'Administrador']), catalogController.revokeTeacherEmail);
+
+// Restricciones Horarias de Docentes (RBAC: Coordinador/Administrador o Profesor sobre su propio ID / 'me')
+app.get('/api/teachers/:teacherId/restrictions', teacherRestrictionController.getTeacherRestrictions);
+app.post('/api/teachers/:teacherId/restrictions', teacherRestrictionController.createTeacherRestriction);
+app.delete('/api/teachers/restrictions/:restrictionId', teacherRestrictionController.deleteTeacherRestriction);
+app.delete('/api/teachers/:teacherId/restrictions/:restrictionId', teacherRestrictionController.deleteTeacherRestriction);
 
 // Módulo Coordinador: Armado de Horarios
 app.post('/api/schedules', requireRole(['Coordinador', 'Administrador']), scheduleController.createSchedule);
