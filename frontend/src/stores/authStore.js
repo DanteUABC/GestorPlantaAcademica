@@ -99,6 +99,9 @@ export const useAuthStore = defineStore('auth', {
         return false;
       }
     },
+    async checkAuth() {
+      return await this.silentRefresh();
+    },
     async login(email, password, tenant_id = null) {
       this.loading = true;
       this.error = null;

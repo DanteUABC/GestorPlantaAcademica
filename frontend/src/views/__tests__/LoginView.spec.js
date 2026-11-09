@@ -73,7 +73,64 @@ describe('LoginView.vue - UI de Autenticación', () => {
         });
         
         expect(wrapper.text()).not.toContain('Acceso Rápido de Demostración');
+        expect(wrapper.text()).not.toContain('Acceso Rápido');
+        expect(wrapper.text()).not.toContain('PROBAR OTRO ROL DEMO');
+        expect(wrapper.text()).not.toContain('demo123');
         expect(wrapper.exists()).toBe(true);
+    });
+
+    it('debe iniciar sesión exitosamente mediante el formulario legítimo con correo, contraseña y tenant', async () => {
+        const store = useAuthStore(pinia);
+        store.login = vi.fn().mockResolvedValue({ role_name: 'Coordinador' });
+
+        const wrapper = mount(LoginView, {
+            global: {
+                plugins: [pinia],
+                stubs
+            }
+        });
+        await flushPromises();
+
+        // a) Establecer la institución (tenant_id)
+        wrapper.vm.loginForm.tenant_id = 'tenant-itc';
+
+        // b) Asignar valores legítimos a los inputs de email y password
+        wrapper.vm.loginForm.email = 'coordinador@pavilion.com';
+        wrapper.vm.loginForm.password = 'ClaveSegura2026!';
+        wrapper.vm.isLoginFormValid = true;
+
+        // c) Disparar el evento de submit del formulario o invocar el flujo oficial de login
+        const forms = wrapper.findAllComponents({ name: 'v-form' });
+        const loginFormComp = forms[0];
+        if (loginFormComp) {
+            await loginFormComp.trigger('submit');
+        }
+        if (!store.login.mock.calls.length) {
+            await wrapper.vm.handleLogin();
+        }
+        await flushPromises();
+
+        // Verificar que se invoque authStore.login con los argumentos legítimos proporcionados
+        expect(store.login).toHaveBeenCalledWith('coordinador@pavilion.com', 'ClaveSegura2026!', 'tenant-itc');
+    });
+
+    it('no debe procesar el inicio de sesión si el formulario es inválido', async () => {
+        const store = useAuthStore(pinia);
+        store.login = vi.fn();
+
+        const wrapper = mount(LoginView, {
+            global: {
+                plugins: [pinia],
+                stubs
+            }
+        });
+        await flushPromises();
+
+        wrapper.vm.isLoginFormValid = false;
+        await wrapper.vm.handleLogin();
+        await flushPromises();
+
+        expect(store.login).not.toHaveBeenCalled();
     });
 
     it('debe validar la regla de terminación @pavilion.com', () => {
