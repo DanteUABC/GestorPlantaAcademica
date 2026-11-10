@@ -29,4 +29,8 @@ ENV NODE_ENV=production
 ENV PORT=5000
 EXPOSE 5000
 
+# Seguridad: Ejecución con usuario no privilegiado (node)
+RUN chown -R node:node /app
+USER node
+
 CMD ["node", "backend/src/server.js"]

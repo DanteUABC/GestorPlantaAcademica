@@ -19,21 +19,44 @@ const analyticsRoutes = require('./routes/analyticsRoutes');
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-// CORS con soporte para cookies HttpOnly y credenciales
-const frontendUrl = process.env.FRONTEND_URL;
+// 1. Hardening de CORS con soporte para cookies y credenciales
 app.use(cors({
   origin: (origin, callback) => {
+    // Permitir solicitudes sin header Origin (ej. balanceadores, curl, llamadas internas del proxy)
     if (!origin) return callback(null, true);
-    if (!frontendUrl || frontendUrl === '*' || origin === frontendUrl || origin.includes('localhost') || origin.includes('127.0.0.1')) {
+
+    const isProduction = process.env.NODE_ENV === 'production';
+    const frontendUrl = process.env.FRONTEND_URL ? process.env.FRONTEND_URL.replace(/\/$/, '') : null;
+    const cleanOrigin = origin.replace(/\/$/, '');
+
+    if (isProduction) {
+      // En producción: solo el origen exacto configurado en FRONTEND_URL (prohibiendo comodines '*')
+      if (frontendUrl && frontendUrl !== '*' && cleanOrigin === frontendUrl) {
+        return callback(null, true);
+      }
+      return callback(null, false);
+    }
+
+    // En desarrollo/test: permitir localhost, 127.0.0.1 y FRONTEND_URL si está definido
+    const isLocalDev = cleanOrigin.includes('localhost') || cleanOrigin.includes('127.0.0.1');
+    if (isLocalDev || (frontendUrl && cleanOrigin === frontendUrl)) {
       return callback(null, true);
     }
-    if (origin.endsWith('.onrender.com') || origin.endsWith('.railway.app') || origin.endsWith('.vercel.app')) {
-      return callback(null, true);
-    }
-    return callback(null, true);
+    return callback(null, false);
   },
   credentials: true
 }));
+
+// 2. Middleware de Cabeceras de Seguridad HTTP
+app.use((req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  if (process.env.NODE_ENV === 'production') {
+    res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+  }
+  next();
+});
 
 app.use(cookieParser());
 app.use(passport.initialize());
@@ -49,8 +72,8 @@ app.use((req, res, next) => {
 // HEALTHCHECKS PÚBLICOS (Balanceadores y Plataformas Cloud)
 // -------------------------------------------------------------
 app.get(['/health', '/api/health'], (req, res) => {
-  res.json({
-    status: 'online',
+  res.status(200).json({
+    status: 'OK',
     timestamp: new Date().toISOString()
   });
 });
