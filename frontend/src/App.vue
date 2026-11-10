@@ -36,36 +36,6 @@
 
       <v-spacer></v-spacer>
 
-      <!-- Role Switcher for Rapid Prototype Testing -->
-      <v-menu>
-        <template #activator="{ props }">
-          <v-btn
-            v-bind="props"
-            variant="outlined"
-            color="white"
-            class="mr-3 text-none"
-            prepend-icon="mdi-swap-horizontal-bold"
-          >
-            Cambiar Rol Rápido
-          </v-btn>
-        </template>
-        <v-list density="compact" elevation="4">
-          <v-list-subheader>PROBAR OTRO ROL DEMO</v-list-subheader>
-          <v-list-item
-            prepend-icon="mdi-account-tie"
-            title="Dr. Mendoza (Coordinador)"
-            subtitle="Armado y gestión de horarios"
-            @click="switchRole('coordinador')"
-          ></v-list-item>
-          <v-list-item
-            prepend-icon="mdi-teach"
-            title="Mtra. Elena (Profesora)"
-            subtitle="Consulta de carga horaria"
-            @click="switchRole('profesor')"
-          ></v-list-item>
-        </v-list>
-      </v-menu>
-
       <!-- User Profile & Role Info -->
       <div class="d-flex align-center mr-4">
         <div class="text-right mr-2 d-none d-sm-block">
@@ -129,16 +99,6 @@ function getRoleColor(role) {
       return 'teal-darken-1';
     default:
       return 'grey';
-  }
-}
-
-async function switchRole(roleName) {
-  try {
-    await authStore.quickLogin(roleName);
-    if (roleName === 'coordinador') router.push('/coordinator');
-    else if (roleName === 'profesor') router.push('/teacher');
-  } catch (err) {
-    console.error('Error switching role:', err);
   }
 }
 
