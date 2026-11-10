@@ -333,6 +333,24 @@ async function initDatabase() {
 }
 
 async function seedInitialData() {
+  const shouldRunSeeds = process.env.NODE_ENV !== 'production' && process.env.RUN_SEEDS === 'true';
+  if (!shouldRunSeeds) {
+    console.log(`[DB] Seeding omitido (NODE_ENV=${process.env.NODE_ENV || 'development'}, RUN_SEEDS=${process.env.RUN_SEEDS || 'false'})`);
+    return;
+  }
+
+  const q = pool.query && pool.query.get ? pool.query : query;
+
+  try {
+    const tenantCheck = await q.get('SELECT COUNT(*)::int AS count FROM tenants;');
+    if (tenantCheck && parseInt(tenantCheck.count, 10) > 0) {
+      console.log('[DB] Base de datos con datos existentes en tenants. Seeding omitido.');
+      return;
+    }
+  } catch (err) {
+    console.warn('[DB] Verificación de idempotencia en tenants:', err.message);
+  }
+
   // 1. Roles (Sin Alumno)
   const roles = [
     { id: 'role-admin', name: 'Administrador', description: 'Acceso total de configuración' },
@@ -341,11 +359,11 @@ async function seedInitialData() {
   ];
 
   for (const r of roles) {
-    const existing = await query.get('SELECT id FROM roles WHERE id = ?', [r.id]);
+    const existing = await q.get('SELECT id FROM roles WHERE id = ?', [r.id]);
     if (!existing) {
-      await query.run('INSERT INTO roles (id, name, nombre, description) VALUES (?, ?, ?, ?)', [r.id, r.name, r.name, r.description]);
+      await q.run('INSERT INTO roles (id, name, nombre, description) VALUES (?, ?, ?, ?)', [r.id, r.name, r.name, r.description]);
     } else {
-      await query.run('UPDATE roles SET nombre = ? WHERE id = ? AND nombre IS NULL', [r.name, r.id]);
+      await q.run('UPDATE roles SET nombre = ? WHERE id = ? AND nombre IS NULL', [r.name, r.id]);
     }
   }
 
@@ -357,9 +375,9 @@ async function seedInitialData() {
   ];
 
   for (const p of permissions) {
-    const existing = await query.get('SELECT id FROM permissions WHERE id = ?', [p.id]);
+    const existing = await q.get('SELECT id FROM permissions WHERE id = ?', [p.id]);
     if (!existing) {
-      await query.run('INSERT INTO permissions (id, code, description) VALUES (?, ?, ?)', [p.id, p.code, p.description]);
+      await q.run('INSERT INTO permissions (id, code, description) VALUES (?, ?, ?)', [p.id, p.code, p.description]);
     }
   }
 
@@ -372,12 +390,12 @@ async function seedInitialData() {
   ];
 
   for (const rp of rolePermissions) {
-    const existing = await query.get(
+    const existing = await q.get(
       'SELECT role_id FROM role_permissions WHERE role_id = ? AND permission_id = ?',
       [rp.role_id, rp.permission_id]
     );
     if (!existing) {
-      await query.run('INSERT INTO role_permissions (role_id, permission_id) VALUES (?, ?)', [rp.role_id, rp.permission_id]);
+      await q.run('INSERT INTO role_permissions (role_id, permission_id) VALUES (?, ?)', [rp.role_id, rp.permission_id]);
     }
   }
 
@@ -389,9 +407,9 @@ async function seedInitialData() {
   ];
 
   for (const t of demoTenants) {
-    const existing = await query.get('SELECT id FROM tenants WHERE id = ?', [t.id]);
+    const existing = await q.get('SELECT id FROM tenants WHERE id = ?', [t.id]);
     if (!existing) {
-      await query.run('INSERT INTO tenants (id, name, slug) VALUES (?, ?, ?)', [t.id, t.name, t.slug]);
+      await q.run('INSERT INTO tenants (id, name, slug) VALUES (?, ?, ?)', [t.id, t.name, t.slug]);
     }
   }
 
@@ -403,9 +421,9 @@ async function seedInitialData() {
   ];
 
   for (const cr of itcClassrooms) {
-    const existing = await query.get('SELECT id FROM classrooms WHERE id = ?', [cr.id]);
+    const existing = await q.get('SELECT id FROM classrooms WHERE id = ?', [cr.id]);
     if (!existing) {
-      await query.run('INSERT INTO classrooms (id, tenant_id, name, building, capacity, type) VALUES (?, ?, ?, ?, ?, ?)',
+      await q.run('INSERT INTO classrooms (id, tenant_id, name, building, capacity, type) VALUES (?, ?, ?, ?, ?, ?)',
         [cr.id, cr.tenant_id, cr.name, cr.building, cr.capacity, cr.type || 'Aula Teórica']);
     }
   }
@@ -418,15 +436,16 @@ async function seedInitialData() {
   ];
 
   for (const s of itcSubjects) {
-    const existing = await query.get('SELECT id FROM subjects WHERE id = ?', [s.id]);
+    const existing = await q.get('SELECT id FROM subjects WHERE id = ?', [s.id]);
     if (!existing) {
-      await query.run('INSERT INTO subjects (id, tenant_id, code, name, credits) VALUES (?, ?, ?, ?, ?)',
+      await q.run('INSERT INTO subjects (id, tenant_id, code, name, credits) VALUES (?, ?, ?, ?, ?)',
         [s.id, s.tenant_id, s.code, s.name, s.credits]);
     }
   }
 
-  // 5. Usuarios iniciales para ITC (Password por defecto: "demo123")
-  const defaultPasswordHash = await bcrypt.hash('demo123', 10);
+  // 5. Usuarios iniciales para ITC (ADMIN_INITIAL_PASSWORD hasheada con bcrypt)
+  const initialPassword = process.env.ADMIN_INITIAL_PASSWORD || 'AdminDev2026!';
+  const defaultPasswordHash = await bcrypt.hash(initialPassword, 10);
   const demoUsers = [
     {
       id: 'usr-coord-1',
@@ -470,15 +489,15 @@ async function seedInitialData() {
   ];
 
   for (const u of demoUsers) {
-    const existing = await query.get('SELECT id FROM users WHERE id = ?', [u.id]);
+    const existing = await q.get('SELECT id FROM users WHERE id = ?', [u.id]);
     if (!existing) {
-      await query.run(
+      await q.run(
         `INSERT INTO users (id, tenant_id, nombre, apellidos, email, password_hash, role_id, identificador, horas_contratadas, estatus, email_activo)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [u.id, u.tenant_id, u.nombre, u.apellidos, u.email, u.password_hash, u.role_id, u.identificador, u.horas_contratadas, u.estatus, u.email_activo]
       );
     } else {
-      await query.run('UPDATE users SET email = ? WHERE id = ?', [u.email, u.id]);
+      await q.run('UPDATE users SET email = ? WHERE id = ?', [u.email, u.id]);
     }
   }
 
@@ -520,9 +539,9 @@ async function seedInitialData() {
   ];
 
   for (const sch of initialSchedules) {
-    const existing = await query.get('SELECT id FROM schedules WHERE id = ?', [sch.id]);
+    const existing = await q.get('SELECT id FROM schedules WHERE id = ?', [sch.id]);
     if (!existing) {
-      await query.run(
+      await q.run(
         `INSERT INTO schedules (id, tenant_id, subject_id, teacher_id, classroom_id, day_of_week, start_time, end_time, max_students)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [sch.id, sch.tenant_id, sch.subject_id, sch.teacher_id, sch.classroom_id, sch.day_of_week, sch.start_time, sch.end_time, sch.max_students]
@@ -540,9 +559,11 @@ pool.pool = pool;
 pool.default = pool;
 pool.query = queryFn;
 pool.initDatabase = initDatabase;
+pool.seedInitialData = seedInitialData;
 
 module.exports = pool;
 module.exports.default = pool;
 module.exports.pool = pool;
 module.exports.query = queryFn;
 module.exports.initDatabase = initDatabase;
+module.exports.seedInitialData = seedInitialData;
