@@ -93,7 +93,7 @@
             <template #item="{ props, item }">
               <v-list-item
                 v-bind="props"
-                :title="item.raw.name"
+                :title="formatSubstituteTitle(item.raw)"
                 :subtitle="item.raw.email ? `${item.raw.email}${item.raw.identifier ? ' • ID: ' + item.raw.identifier : ''}` : (item.raw.identifier ? 'ID: ' + item.raw.identifier : '')"
               >
                 <template #prepend>
@@ -102,6 +102,19 @@
               </v-list-item>
             </template>
           </v-autocomplete>
+
+          <!-- Alerta informativa de exceso de carga contractual -->
+          <v-alert
+            v-if="selectedSubstitute?.will_exceed_contract"
+            type="warning"
+            variant="tonal"
+            icon="mdi-alert-outline"
+            class="mt-3 mb-3"
+            density="compact"
+            data-testid="alert-exceed-contract"
+          >
+            Atención: Asignar esta suplencia hará que el docente supere sus horas contratadas ({{ selectedSubstitute.horas_contratadas }}h).
+          </v-alert>
 
           <!-- Fecha Efectiva -->
           <v-text-field
@@ -162,7 +175,7 @@
 </template>
 
 <script setup>
-import { ref, watch } from 'vue';
+import { ref, computed, watch } from 'vue';
 import api from '../api/client';
 
 const props = defineProps({
@@ -185,6 +198,18 @@ const selectedSubstituteId = ref(null);
 const reason = ref('');
 const effectiveDate = ref(new Date().toISOString().split('T')[0]);
 const errorMessage = ref('');
+
+const selectedSubstitute = computed(() => {
+  if (!selectedSubstituteId.value) return null;
+  return availableSubstitutes.value.find(s => s.id === selectedSubstituteId.value) || null;
+});
+
+function formatSubstituteTitle(sub) {
+  if (!sub) return '';
+  const assigned = sub.horas_asignadas ?? 0;
+  const contracted = sub.horas_contratadas ?? 25;
+  return `${sub.name} - Carga: ${assigned}/${contracted} hrs`;
+}
 
 function handleUpdateModelValue(val) {
   emit('update:modelValue', val);

@@ -46,13 +46,19 @@ describe('ScheduleTransferModal.vue - Reasignación de Horarios y Suplencias', (
       id: 'usr-prof-2',
       name: 'Prof. Maria Lopez',
       email: 'maria.lopez@pavilion.com',
-      identifier: 'DOC-502'
+      identifier: 'DOC-502',
+      horas_asignadas: 10,
+      horas_contratadas: 20,
+      will_exceed_contract: false
     },
     {
       id: 'usr-prof-3',
       name: 'Prof. Juan Gomez',
       email: 'juan.gomez@pavilion.com',
-      identifier: 'DOC-503'
+      identifier: 'DOC-503',
+      horas_asignadas: 19,
+      horas_contratadas: 20,
+      will_exceed_contract: true
     }
   ];
 
@@ -173,5 +179,40 @@ describe('ScheduleTransferModal.vue - Reasignación de Horarios y Suplencias', (
 
     expect(wrapper.vm.errorMessage).toBe('Empalme de horario: el docente ya tiene clase en este bloque');
     expect(wrapper.emitted('transferred')).toBeFalsy();
+  });
+
+  it('formatea las métricas de carga contractual y muestra alerta preventiva sin bloquear el botón cuando will_exceed_contract es true', async () => {
+    api.get.mockResolvedValueOnce({ data: dummySubstitutes });
+
+    const wrapper = mount(ScheduleTransferModal, {
+      props: {
+        modelValue: false,
+        schedule: dummySchedule
+      },
+      global: { stubs: vuetifyStubs }
+    });
+
+    await wrapper.setProps({ modelValue: true });
+    await wrapper.vm.$nextTick();
+
+    // 1. Verificar formato de título con métricas (ej. Prof. Maria Lopez - Carga: 10/20 hrs)
+    expect(wrapper.vm.formatSubstituteTitle(dummySubstitutes[0])).toBe('Prof. Maria Lopez - Carga: 10/20 hrs');
+    expect(wrapper.vm.formatSubstituteTitle(dummySubstitutes[1])).toBe('Prof. Juan Gomez - Carga: 19/20 hrs');
+
+    // 2. Seleccionar docente sin sobrecupo -> no debe mostrarse la alerta
+    wrapper.vm.selectedSubstituteId = 'usr-prof-2';
+    await wrapper.vm.$nextTick();
+    expect(wrapper.find('[data-testid="alert-exceed-contract"]').exists()).toBe(false);
+
+    // 3. Seleccionar docente con sobrecupo (will_exceed_contract: true) -> debe mostrarse la alerta informativa
+    wrapper.vm.selectedSubstituteId = 'usr-prof-3';
+    await wrapper.vm.$nextTick();
+    const alert = wrapper.find('[data-testid="alert-exceed-contract"]');
+    expect(alert.exists()).toBe(true);
+    expect(alert.text()).toContain('Atención: Asignar esta suplencia hará que el docente supere sus horas contratadas (20h).');
+
+    // 4. El botón de confirmación NO debe deshabilitarse por esta alerta informativa
+    const confirmBtn = wrapper.find('[data-testid="btn-confirm-transfer"]');
+    expect(confirmBtn.attributes('disabled')).toBe('false');
   });
 });

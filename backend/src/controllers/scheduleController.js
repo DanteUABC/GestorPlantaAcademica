@@ -870,17 +870,32 @@ async function getAvailableSubstitutes(req, res) {
       return res.status(404).json({ error: 'Horario no encontrado en esta institución' });
     }
 
-    // 2. Buscar usuarios con rol 'Profesor' del mismo tenant excluyendo original_teacher_id
-    // y filtrando a los que ya tengan clase ese mismo día donde (start_time < target_end AND end_time > target_start)
-    const availableSubstitutes = await query.all(
+    // Calcular duración de la clase a suplir en horas
+    const duracionClase = Math.max(0, (timeToMinutes(schedule.end_time) - timeToMinutes(schedule.start_time)) / 60);
+
+    // 2. Buscar usuarios con rol 'Profesor' activos del mismo tenant excluyendo original_teacher_id
+    // y filtrando a los que ya tengan clase o restricción ese mismo día donde (start_time < target_end AND end_time > target_start)
+    const rawSubstitutes = await query.all(
       `SELECT u.id,
               TRIM(CONCAT(COALESCE(u.nombre, ''), ' ', COALESCE(u.apellidos, ''))) AS name,
               u.email,
-              u.identificador AS identifier
+              u.identificador AS identifier,
+              u.estatus,
+              COALESCE(u.horas_contratadas, 25)::int AS horas_contratadas,
+              (
+                SELECT COALESCE(
+                  SUM(EXTRACT(EPOCH FROM (s_load.end_time::time - s_load.start_time::time)) / 3600),
+                  0
+                )::float
+                FROM schedules s_load
+                WHERE s_load.teacher_id = u.id
+                  AND s_load.tenant_id = u.tenant_id
+              ) AS horas_asignadas
        FROM users u
        JOIN roles r ON u.role_id = r.id
        WHERE u.tenant_id = ?
          AND (r.name = 'Profesor' OR r.nombre = 'Profesor')
+         AND (u.estatus = 'activo' OR u.estatus IS NULL)
          AND u.id != ?
          AND NOT EXISTS (
            SELECT 1 FROM schedules s
@@ -914,6 +929,17 @@ async function getAvailableSubstitutes(req, res) {
         schedule.start_time
       ]
     );
+
+    const availableSubstitutes = (rawSubstitutes || []).map((t) => {
+      const horasContratadas = Number(t.horas_contratadas ?? 25);
+      const horasAsignadas = Number(t.horas_asignadas ?? 0);
+      return {
+        ...t,
+        horas_contratadas: horasContratadas,
+        horas_asignadas: horasAsignadas,
+        will_exceed_contract: horasAsignadas + duracionClase > horasContratadas
+      };
+    });
 
     return res.status(200).json(availableSubstitutes);
   } catch (err) {
@@ -968,7 +994,8 @@ async function transferSchedule(req, res) {
     const teacherRes = await client.query(
       `SELECT u.id, 
               TRIM(CONCAT(COALESCE(u.nombre, ''), ' ', COALESCE(u.apellidos, ''))) AS name,
-              u.email
+              u.email,
+              u.estatus
        FROM users u
        JOIN roles r ON u.role_id = r.id
        WHERE u.id = $1 AND u.tenant_id = $2 AND (r.name = 'Profesor' OR r.nombre = 'Profesor')`,
@@ -981,6 +1008,17 @@ async function transferSchedule(req, res) {
     }
 
     const substituteTeacher = teacherRes.rows[0];
+
+    // 2.1. Validación defensiva de gobernanza: rechazar docentes con estatus 'inactivo' o 'baja'
+    if (
+      substituteTeacher.estatus &&
+      ['inactivo', 'baja'].includes(String(substituteTeacher.estatus).trim().toLowerCase())
+    ) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({
+        error: 'El docente seleccionado no está activo en la institución.'
+      });
+    }
 
     // 2.5. Verificar que el substitute_teacher_id no tenga restricciones horarias en teacher_restrictions
     await validateTeacherRestrictions(client, {
