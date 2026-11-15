@@ -80,18 +80,30 @@ describe('CoordinatorView.vue - Búsqueda de Maestro, Materia y Altas Rápidas I
           'v-divider': true,
           'v-progress-linear': true,
           'ExcelScheduleUploader': true,
-          'ClassroomCatalogView': true
+          'ClassroomCatalogTab': true
         }
       }
     });
   }
 
-  it('debe incluir la pestaña "Catálogo de Aulas" enlazada a la nueva vista (/classrooms)', () => {
+  it('debe incluir la pestaña "Catálogo de Aulas" integrada en CoordinatorView sin navegar fuera de /coordinator', async () => {
     const wrapper = getWrapper();
+    await flushPromises();
+
     const catalogTab = wrapper.find('[data-testid="tab-classroom-catalog"]');
     expect(catalogTab.exists()).toBe(true);
     expect(catalogTab.text()).toContain('Catálogo de Aulas');
-    expect(catalogTab.attributes('to')).toBe('/classrooms');
+    expect(catalogTab.attributes('to')).toBeUndefined();
+
+    expect(wrapper.find('[data-testid="classrooms-catalog-tab-content"]').exists()).toBe(false);
+
+    await catalogTab.trigger('click');
+    await wrapper.vm.$nextTick();
+
+    expect(wrapper.vm.viewTab).toBe('classrooms');
+    const tabContent = wrapper.find('[data-testid="classrooms-catalog-tab-content"]');
+    expect(tabContent.exists()).toBe(true);
+    expect(tabContent.findComponent({ name: 'ClassroomCatalogTab' }).exists() || tabContent.find('classroom-catalog-tab-stub').exists()).toBe(true);
   });
 
   it('debe contener componentes v-autocomplete para la búsqueda de Materia y Maestro con sus placeholders e iconos de lupa', () => {
