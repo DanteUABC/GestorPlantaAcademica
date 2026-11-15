@@ -90,14 +90,16 @@ describe('Integración: Motor Anti-Empalmes con Restricciones Horarias Docentes 
       ]
     );
 
-    // Registrar dos restricciones para teacherRestricted:
+    // Registrar tres restricciones para teacherRestricted:
     // 1) Lunes 09:00 - 11:00 con motivo explícito ("Investigación CONACYT")
     // 2) Jueves 14:00 - 16:00 con motivo nulo (para validar fallback "No especificado")
+    // 3) Miércoles 14:00 - 18:00 con motivo "Posgrado" (para validar inclusión total 15:00-17:00)
     await pool.query(
       `INSERT INTO teacher_restrictions (id, tenant_id, teacher_id, day_of_week, start_time, end_time, reason)
        VALUES
          ('tr-sched-1', $1, $2, 'Lunes', '09:00', '11:00', 'Investigación CONACYT'),
-         ('tr-sched-2', $1, $2, 'Jueves', '14:00', '16:00', NULL)`,
+         ('tr-sched-2', $1, $2, 'Jueves', '14:00', '16:00', NULL),
+         ('tr-sched-3', $1, $2, 'Miércoles', '14:00', '18:00', 'Posgrado')`,
       [tenantId, teacherRestricted.id]
     );
   });
@@ -138,6 +140,31 @@ describe('Integración: Motor Anti-Empalmes con Restricciones Horarias Docentes 
         start_time: '09:00',
         end_time: '11:00',
         reason: 'Investigación CONACYT'
+      });
+    });
+
+    it('Retorna HTTP 409 y conflictType TEACHER_RESTRICTION ante inclusión total (clase 15:00-17:00 dentro de bloqueo 14:00-18:00 Posgrado)', async () => {
+      const res = await request(app)
+        .post('/api/schedules')
+        .set('Authorization', `Bearer ${coordToken}`)
+        .send({
+          subject_id: testSubject.id,
+          teacher_id: teacherRestricted.id,
+          classroom_id: testClassroom.id,
+          day_of_week: 'Miércoles',
+          start_time: '15:00',
+          end_time: '17:00',
+          group_code: 'G-RESTR-INC',
+          max_students: 25
+        });
+
+      expect(res.status).toBe(409);
+      expect(res.body.conflictType).toBe('TEACHER_RESTRICTION');
+      expect(res.body.restriction).toMatchObject({
+        day_of_week: 'Miércoles',
+        start_time: '14:00',
+        end_time: '18:00',
+        reason: 'Posgrado'
       });
     });
 

@@ -144,8 +144,17 @@ async function validateTeacherRestrictions(arg1, arg2) {
     );
   }
 
-  if (rows && rows.length > 0) {
-    const row = rows[0];
+  const startMin = timeToMinutes(start_time);
+  const endMin = timeToMinutes(end_time);
+
+  const collidingRows = (rows || []).filter(row => {
+    if (!row || !row.start_time || !row.end_time) return true;
+    if (row.day_of_week && day_of_week && row.day_of_week !== day_of_week) return false;
+    return timeToMinutes(row.start_time) < endMin && timeToMinutes(row.end_time) > startMin;
+  });
+
+  if (collidingRows.length > 0) {
+    const row = collidingRows[0];
     const firstName = row.teacher_name ? String(row.teacher_name).trim() : '';
     const lastName = row.teacher_lastname ? String(row.teacher_lastname).trim() : '';
     const teacherFullName =

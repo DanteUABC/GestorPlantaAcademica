@@ -579,4 +579,58 @@ describe('CoordinatorView.vue - Miniventana Modal de Detalle de Docente (Tarea E
     // El modal principal del docente permanece abierto
     expect(wrapper.vm.teacherDetailDialog).toBe(true);
   });
+
+  it('Criterio 9: Monta la miniventana con mock de restricciones ([Lunes 14:00 - 18:00] • Posgrado), simula clic en mdi-close-circle-outline y verifica DELETE /teachers/restrictions/:id y remoción reactiva', async () => {
+    const mockRestrictionsPosgrado = [
+      {
+        id: 'rest-posgrado-1',
+        teacher_id: 'teach-optimo',
+        day_of_week: 'Lunes',
+        start_time: '14:00',
+        end_time: '18:00',
+        reason: 'Posgrado'
+      }
+    ];
+
+    api.get.mockImplementation((url) => {
+      if (url.includes('/restrictions')) {
+        return Promise.resolve({ data: mockRestrictionsPosgrado });
+      }
+      if (url.includes('/schedules/coordinator')) {
+        return Promise.resolve({ data: mockSchedules });
+      }
+      if (url.includes('/teachers')) {
+        return Promise.resolve({ data: mockTeachers });
+      }
+      return Promise.resolve({ data: [] });
+    });
+    api.delete.mockResolvedValueOnce({ status: 200, data: { message: 'Restricción eliminada', id: 'rest-posgrado-1' } });
+
+    const wrapper = await createWrapper();
+    wrapper.vm.openTeacherDetailModal(mockTeachers[0]);
+    wrapper.vm.teacherDetailTab = 'restrictions';
+    await flushPromises();
+
+    // Verificar que el v-chip se renderiza con el texto esperado
+    const chip = wrapper.find('[data-testid="chip-restriction-rest-posgrado-1"]');
+    expect(chip.exists()).toBe(true);
+    expect(chip.text()).toContain('[Lunes 14:00 - 18:00] • Posgrado');
+
+    // Simular clic en el ícono de cerrado (mdi-close-circle-outline)
+    const closeIcon = chip.find('[data-testid="btn-delete-restriction-rest-posgrado-1"]');
+    expect(closeIcon.exists()).toBe(true);
+    expect(closeIcon.text()).toContain('mdi-close-circle-outline');
+    await closeIcon.trigger('click');
+    await wrapper.vm.$nextTick();
+
+    // Confirmar en el subdiálogo y verificar llamada DELETE y remoción reactiva
+    const confirmBtn = wrapper.find('[data-testid="btn-confirm-delete-restriction"]');
+    expect(confirmBtn.exists()).toBe(true);
+    await confirmBtn.trigger('click');
+    await flushPromises();
+
+    expect(api.delete).toHaveBeenCalledWith('/teachers/restrictions/rest-posgrado-1');
+    expect(wrapper.vm.restrictionsList).toHaveLength(0);
+    expect(wrapper.find('[data-testid="chip-restriction-rest-posgrado-1"]').exists()).toBe(false);
+  });
 });
