@@ -1,7 +1,8 @@
-import { mount, config } from '@vue/test-utils';
+import { mount, config, flushPromises } from '@vue/test-utils';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import CoordinatorView from '../CoordinatorView.vue';
 import { createPinia } from 'pinia';
+import api from '../../api/client';
 
 config.global.renderStubDefaultSlot = true;
 
@@ -166,6 +167,69 @@ describe('CoordinatorView.vue - Selector de Espacios y Alerta Dinámica de Sobre
     await wrapper.vm.$nextTick();
 
     expect(wrapper.vm.isCapacityExceeded).toBe(false);
+    expect(saveButton.props('disabled')).toBe(false);
+  });
+
+  it('Criterio 4: Alerta preventiva de restricciones en "Armar Nuevo Horario" al seleccionar docente y detectar colisión horaria', async () => {
+    const mockRestrictions = [
+      {
+        id: 'rest-10',
+        teacher_id: 't-1',
+        day_of_week: 'Lunes',
+        start_time: '09:00',
+        end_time: '11:00',
+        reason: 'Reunión de academia'
+      }
+    ];
+
+    api.get.mockImplementation((url) => {
+      if (url === '/teachers/t-1/restrictions') {
+        return Promise.resolve({ data: mockRestrictions });
+      }
+      if (url.includes('/schedules/coordinator')) return Promise.resolve({ data: [] });
+      if (url.includes('/subjects')) return Promise.resolve({ data: [
+        { id: 'sub-1', name: 'Cálculo Diferencial', code: 'MAT-101', credits: 5 }
+      ] });
+      if (url.includes('/teachers')) return Promise.resolve({ data: [
+        { id: 't-1', name: 'Elena Salgado', email: 'elena@itc.edu', identifier: 'DOC-101' }
+      ] });
+      if (url.includes('/classrooms')) return Promise.resolve({ data: mockClassrooms });
+      return Promise.resolve({ data: [] });
+    });
+
+    const wrapper = getWrapper();
+    await flushPromises();
+
+    wrapper.vm.openCreateDialog();
+    await wrapper.vm.$nextTick();
+
+    // Seleccionar docente t-1 -> debe disparar GET /teachers/t-1/restrictions
+    wrapper.vm.newSchedule.teacher_id = 't-1';
+    await flushPromises();
+
+    expect(api.get).toHaveBeenCalledWith('/teachers/t-1/restrictions');
+    expect(wrapper.vm.selectedTeacherRestrictions).toEqual(mockRestrictions);
+
+    // Con el horario por defecto (Lunes 08:00 - 10:00) choca con Lunes 09:00 - 11:00
+    expect(wrapper.vm.overlappingRestriction).toEqual(mockRestrictions[0]);
+
+    const restrictionAlert = wrapper.find('[data-testid="alert-overlapping-restriction"]');
+    expect(restrictionAlert.exists()).toBe(true);
+    expect(restrictionAlert.text()).toContain('Atención:');
+    expect(restrictionAlert.text()).toContain('09:00 a 11:00');
+    expect(restrictionAlert.text()).toContain('Motivo: Reunión de academia');
+
+    const buttons = wrapper.findAllComponents({ name: 'v-btn' });
+    const saveButton = buttons.find(b => b.text().includes('Guardar Horario'));
+    expect(saveButton.props('disabled')).toBe(true);
+
+    // Cambiar la franja horaria a una libre en el mismo día (Lunes 07:00 - 09:00, límite exacto sin cruce)
+    wrapper.vm.newSchedule.start_time = '07:00';
+    wrapper.vm.newSchedule.end_time = '09:00';
+    await wrapper.vm.$nextTick();
+
+    expect(wrapper.vm.overlappingRestriction).toBeNull();
+    expect(wrapper.find('[data-testid="alert-overlapping-restriction"]').exists()).toBe(false);
     expect(saveButton.props('disabled')).toBe(false);
   });
 });

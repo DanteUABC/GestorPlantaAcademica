@@ -822,6 +822,19 @@
               Reduce el cupo para poder guardar el horario.
             </v-alert>
 
+            <!-- Alerta preventiva de restricción de horario del docente -->
+            <v-alert
+              v-if="overlappingRestriction"
+              type="warning"
+              icon="mdi-alert-clock-outline"
+              variant="tonal"
+              class="mt-3 mb-3"
+              density="compact"
+              data-testid="alert-overlapping-restriction"
+            >
+              <strong>Atención:</strong> El docente tiene registrada una restricción de disponibilidad este día de {{ overlappingRestriction.start_time }} a {{ overlappingRestriction.end_time }} (Motivo: {{ overlappingRestriction.reason || 'No especificado' }}).
+            </v-alert>
+
             <div class="d-flex justify-end gap-2">
               <v-btn variant="text" class="text-none mr-2" @click="createDialog = false">
                 Cancelar
@@ -831,7 +844,8 @@
                 color="primary"
                 class="text-none font-weight-bold"
                 :loading="submitting"
-                :disabled="isCapacityExceeded || isLabMismatch || submitting"
+                :disabled="!isFormValid || isCapacityExceeded || isLabMismatch || submitting || !!overlappingRestriction"
+                data-testid="btn-save-schedule"
               >
                 Guardar Horario
               </v-btn>
@@ -2541,6 +2555,58 @@ const newSchedule = ref({
   session_type: 'Clase Teórica'
 });
 
+const isFormValid = ref(true);
+const selectedTeacherRestrictions = ref([]);
+
+async function fetchSelectedTeacherRestrictions(teacherId) {
+  if (!teacherId) {
+    selectedTeacherRestrictions.value = [];
+    return;
+  }
+  try {
+    const res = await api.get(`/teachers/${teacherId}/restrictions`);
+    if (Array.isArray(res?.data)) {
+      selectedTeacherRestrictions.value = res.data.filter(
+        r => r && r.day_of_week && r.start_time && r.end_time
+      );
+    } else {
+      selectedTeacherRestrictions.value = [];
+    }
+  } catch {
+    selectedTeacherRestrictions.value = [];
+  }
+}
+
+watch(
+  () => newSchedule.value.teacher_id,
+  async (newTeacherId) => {
+    await fetchSelectedTeacherRestrictions(newTeacherId);
+  }
+);
+
+const overlappingRestriction = computed(() => {
+  const day = newSchedule.value?.day_of_week || newSchedule.value?.day;
+  const start = newSchedule.value?.start_time;
+  const end = newSchedule.value?.end_time;
+  if (!day || !start || !end || !Array.isArray(selectedTeacherRestrictions.value) || selectedTeacherRestrictions.value.length === 0) {
+    return null;
+  }
+  const formStartMin = timeToMinutes(start);
+  const formEndMin = timeToMinutes(end);
+  if (Number.isNaN(formStartMin) || Number.isNaN(formEndMin)) {
+    return null;
+  }
+  return (
+    selectedTeacherRestrictions.value.find(
+      r =>
+        r &&
+        r.day_of_week === day &&
+        formStartMin < timeToMinutes(r.end_time) &&
+        formEndMin > timeToMinutes(r.start_time)
+    ) || null
+  );
+});
+
 const snackbar = ref({
   show: false,
   text: '',
@@ -2601,6 +2667,8 @@ function filterTeachers(valueText, queryText, item) {
 
 function openCreateDialog() {
   conflictError.value = '';
+  isFormValid.value = true;
+  selectedTeacherRestrictions.value = [];
   newSchedule.value = {
     subject_id: null,
     teacher_id: null,
@@ -2616,6 +2684,9 @@ function openCreateDialog() {
 }
 
 async function submitSchedule() {
+  if (overlappingRestriction.value) {
+    return;
+  }
   if (isCapacityExceeded.value) {
     conflictError.value = capacityWarningMessage.value;
     return;
