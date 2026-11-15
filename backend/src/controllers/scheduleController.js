@@ -1076,6 +1076,157 @@ async function transferSchedule(req, res) {
   }
 }
 
+// -------------------------------------------------------------
+// HISTORIAL DE SUSTITUCIONES / SUPLENCIAS (GET /api/schedules/substitutions)
+// -------------------------------------------------------------
+
+async function getSubstitutionsHistory(req, res) {
+  try {
+    const tenantId = req.tenant_id || req.user?.tenant_id;
+
+    if (!tenantId) {
+      return res.status(403).json({ error: 'No se pudo determinar la institución (tenant)' });
+    }
+
+    const {
+      teacher_id,
+      from_date,
+      to_date,
+      start_date,
+      end_date,
+      search,
+      page = 1,
+      limit = 10
+    } = req.query;
+
+    const pageNum = Math.max(1, parseInt(page, 10) || 1);
+    const limitNum = Math.max(1, Math.min(100, parseInt(limit, 10) || 10));
+    const offset = (pageNum - 1) * limitNum;
+
+    const filterConditions = ['ss.tenant_id = $1'];
+    const filterParams = [tenantId];
+    let paramIndex = 2;
+
+    if (teacher_id && String(teacher_id).trim() !== '') {
+      filterConditions.push(`(ss.original_teacher_id = $${paramIndex} OR ss.substitute_teacher_id = $${paramIndex})`);
+      filterParams.push(String(teacher_id).trim());
+      paramIndex += 1;
+    }
+
+    const effectiveFrom = (from_date || start_date || '').trim();
+    const effectiveTo = (to_date || end_date || '').trim();
+
+    if (effectiveFrom && effectiveTo) {
+      filterConditions.push(`ss.effective_date BETWEEN $${paramIndex}::date AND $${paramIndex + 1}::date`);
+      filterParams.push(effectiveFrom, effectiveTo);
+      paramIndex += 2;
+    } else if (effectiveFrom) {
+      filterConditions.push(`ss.effective_date >= $${paramIndex}::date`);
+      filterParams.push(effectiveFrom);
+      paramIndex += 1;
+    } else if (effectiveTo) {
+      filterConditions.push(`ss.effective_date <= $${paramIndex}::date`);
+      filterParams.push(effectiveTo);
+      paramIndex += 1;
+    }
+
+    if (search && String(search).trim() !== '') {
+      const searchPattern = `%${String(search).trim()}%`;
+      filterConditions.push(
+        `(
+          sub.name ILIKE $${paramIndex}
+          OR sub.code ILIKE $${paramIndex}
+          OR COALESCE(ss.reason, '') ILIKE $${paramIndex}
+          OR TRIM(CONCAT(COALESCE(u_orig.nombre, ''), ' ', COALESCE(u_orig.apellidos, ''))) ILIKE $${paramIndex}
+          OR TRIM(CONCAT(COALESCE(u_sub.nombre, ''), ' ', COALESCE(u_sub.apellidos, ''))) ILIKE $${paramIndex}
+        )`
+      );
+      filterParams.push(searchPattern);
+      paramIndex += 1;
+    }
+
+    const whereClause = filterConditions.join(' AND ');
+
+    const baseFromAndJoins = `
+      FROM schedule_substitutions ss
+      JOIN schedules sch ON ss.schedule_id = sch.id
+      JOIN subjects sub ON sch.subject_id = sub.id
+      JOIN classrooms cls ON sch.classroom_id = cls.id
+      JOIN users u_orig ON ss.original_teacher_id = u_orig.id
+      JOIN users u_sub ON ss.substitute_teacher_id = u_sub.id
+      WHERE ${whereClause}
+    `;
+
+    const dataSql = `
+      SELECT
+        ss.id,
+        ss.id AS substitution_id,
+        ss.tenant_id,
+        ss.schedule_id,
+        ss.original_teacher_id,
+        TRIM(CONCAT(COALESCE(u_orig.nombre, ''), ' ', COALESCE(u_orig.apellidos, ''))) AS original_teacher_name,
+        u_orig.email AS original_teacher_email,
+        u_orig.identificador AS original_teacher_identifier,
+        ss.substitute_teacher_id,
+        TRIM(CONCAT(COALESCE(u_sub.nombre, ''), ' ', COALESCE(u_sub.apellidos, ''))) AS substitute_teacher_name,
+        u_sub.email AS substitute_teacher_email,
+        u_sub.identificador AS substitute_teacher_identifier,
+        ss.reason,
+        TO_CHAR(ss.effective_date, 'YYYY-MM-DD') AS effective_date,
+        ss.created_at,
+        sch.day_of_week,
+        sch.start_time,
+        sch.end_time,
+        sch.group_code,
+        sch.session_type,
+        sch.subject_id,
+        sch.classroom_id,
+        sub.name AS subject_name,
+        sub.code AS subject_code,
+        cls.name AS classroom_name,
+        cls.building AS classroom_building
+      ${baseFromAndJoins}
+      ORDER BY ss.created_at DESC, ss.effective_date DESC
+      LIMIT $${paramIndex} OFFSET $${paramIndex + 1}
+    `;
+
+    const countSql = `
+      SELECT COUNT(*)::int AS total
+      ${baseFromAndJoins}
+    `;
+
+    const dataParams = [...filterParams, limitNum, offset];
+
+    const [dataRes, countRes] = await Promise.all([
+      pool.query(dataSql, dataParams),
+      pool.query(countSql, filterParams)
+    ]);
+
+    const rows = dataRes.rows || [];
+    const total = countRes.rows[0]?.total ?? 0;
+    const totalPages = Math.ceil(total / limitNum);
+
+    return res.status(200).json({
+      data: rows,
+      substitutions: rows,
+      items: rows,
+      total,
+      page: pageNum,
+      limit: limitNum,
+      totalPages,
+      pagination: {
+        total,
+        page: pageNum,
+        limit: limitNum,
+        totalPages
+      }
+    });
+  } catch (err) {
+    console.error('Error al consultar historial de sustituciones:', err);
+    return res.status(500).json({ error: 'Error al consultar historial de sustituciones', details: err.message });
+  }
+}
+
 module.exports = {
   createSchedule,
   getCoordinatorSchedules,
@@ -1089,9 +1240,13 @@ module.exports = {
   parseExcelTime,
   normalizeKey,
   getAvailableSubstitutes,
-  transferSchedule
+  transferSchedule,
+  getSubstitutionsHistory,
+  getSubstitutions: getSubstitutionsHistory
 };
 
 module.exports.exportSchedules = exportSchedules;
 module.exports.getAvailableSubstitutes = getAvailableSubstitutes;
 module.exports.transferSchedule = transferSchedule;
+module.exports.getSubstitutionsHistory = getSubstitutionsHistory;
+module.exports.getSubstitutions = getSubstitutionsHistory;

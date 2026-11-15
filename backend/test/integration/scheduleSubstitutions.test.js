@@ -364,4 +364,130 @@ describe('Épica 3: Mantenimiento Operativo y Trazabilidad (Tasks 3.1, 3.2 y 3.3
       expect(res.status).toBe(403);
     });
   });
+
+  describe('Tarea 3.4: Historial de Sustituciones (GET /api/schedules/substitutions)', () => {
+    const studentToken = jwt.sign(
+      { id: 'usr-student-subst', role_name: 'Alumno', tenant_id: 'tenant-itc', email: 'student.subst@pavilion.com' },
+      JWT_SECRET,
+      { expiresIn: '1h' }
+    );
+
+    const otherTenantCoordToken = jwt.sign(
+      { id: 'usr-coord-other', role_name: 'Coordinador', tenant_id: 'tenant-upn', email: 'coord.upn@pavilion.com' },
+      JWT_SECRET,
+      { expiresIn: '1h' }
+    );
+
+    beforeAll(async () => {
+      // Insertar una segunda sustitución en otra fecha para probar filtros por rango de fechas, búsqueda y paginación
+      await pool.query("DELETE FROM schedule_substitutions WHERE id = 'subst-hist-extra-1'");
+      await pool.query(
+        `INSERT INTO schedule_substitutions (
+           id, tenant_id, schedule_id, original_teacher_id, substitute_teacher_id, reason, effective_date, created_at
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, CURRENT_TIMESTAMP + INTERVAL '1 second')`,
+        [
+          'subst-hist-extra-1',
+          'tenant-itc',
+          busyScheduleId,
+          teacherBusy.id,
+          teacherOriginal.id,
+          'Congreso internacional de robótica',
+          '2026-12-01'
+        ]
+      );
+    });
+
+    afterAll(async () => {
+      await pool.query("DELETE FROM schedule_substitutions WHERE id = 'subst-hist-extra-1'");
+    });
+
+    it('debe rechazar con HTTP 403 Forbidden si un usuario con rol Profesor o Alumno intenta consultar el historial', async () => {
+      const resTeacher = await request(app)
+        .get('/api/schedules/substitutions')
+        .set('Authorization', `Bearer ${teacherToken}`);
+      expect(resTeacher.status).toBe(403);
+
+      const resStudent = await request(app)
+        .get('/api/schedules/substitutions')
+        .set('Authorization', `Bearer ${studentToken}`);
+      expect(resStudent.status).toBe(403);
+    });
+
+    it('debe aislar estrictamente por tenant_id (retornando vacío para otro tenant) y devolver joins completos para el tenant activo en < 200ms', async () => {
+      // 1. Consulta desde otro tenant (tenant-upn) -> no debe ver registros de tenant-itc
+      const resOther = await request(app)
+        .get('/api/schedules/substitutions')
+        .set('Authorization', `Bearer ${otherTenantCoordToken}`);
+
+      expect(resOther.status).toBe(200);
+      expect(resOther.body.data).toEqual([]);
+      expect(resOther.body.total).toBe(0);
+
+      // 2. Consulta desde tenant-itc -> debe retornar las sustituciones con los nombres de ambos docentes, materia y aula
+      const startMs = Date.now();
+      const resItc = await request(app)
+        .get('/api/schedules/substitutions')
+        .set('Authorization', `Bearer ${coordToken}`);
+      const elapsedMs = Date.now() - startMs;
+
+      expect(resItc.status).toBe(200);
+      expect(elapsedMs).toBeLessThan(200);
+      expect(resItc.body.total).toBeGreaterThanOrEqual(2);
+      expect(Array.isArray(resItc.body.data)).toBe(true);
+
+      const medicalSub = resItc.body.data.find(r => r.reason === 'Incapacidad médica del profesor titular');
+      expect(medicalSub).toBeDefined();
+      expect(medicalSub.original_teacher_name).toBe('Profesor Original');
+      expect(medicalSub.substitute_teacher_name).toBe('Profesor Disponible');
+      expect(medicalSub.subject_name).toBe('Sistemas Operativos');
+      expect(medicalSub.classroom_name).toBe('Aula Subst 101');
+      expect(medicalSub.effective_date).toBe('2026-11-10');
+    });
+
+    it('debe aplicar correctamente los filtros dinámicos (teacher_id, from_date/to_date, search y paginación)', async () => {
+      // 1. Filtro por teacher_id (teacherAvailable solo participó como suplente en la 1ra sustitución)
+      const resByTeacher = await request(app)
+        .get('/api/schedules/substitutions')
+        .query({ teacher_id: teacherAvailable.id })
+        .set('Authorization', `Bearer ${coordToken}`);
+
+      expect(resByTeacher.status).toBe(200);
+      expect(resByTeacher.body.data.length).toBe(1);
+      expect(resByTeacher.body.data[0].substitute_teacher_id).toBe(teacherAvailable.id);
+
+      // 2. Filtro por rango de fechas (from_date y to_date en noviembre 2026)
+      const resByDate = await request(app)
+        .get('/api/schedules/substitutions')
+        .query({ from_date: '2026-11-01', to_date: '2026-11-30' })
+        .set('Authorization', `Bearer ${coordToken}`);
+
+      expect(resByDate.status).toBe(200);
+      expect(resByDate.body.data.every(r => r.effective_date >= '2026-11-01' && r.effective_date <= '2026-11-30')).toBe(true);
+      expect(resByDate.body.data.some(r => r.effective_date === '2026-11-10')).toBe(true);
+      expect(resByDate.body.data.some(r => r.effective_date === '2026-12-01')).toBe(false);
+
+      // 3. Filtro por search (ILIKE en motivo "robótica")
+      const resBySearch = await request(app)
+        .get('/api/schedules/substitutions')
+        .query({ search: 'robótica' })
+        .set('Authorization', `Bearer ${coordToken}`);
+
+      expect(resBySearch.status).toBe(200);
+      expect(resBySearch.body.data.length).toBe(1);
+      expect(resBySearch.body.data[0].id).toBe('subst-hist-extra-1');
+
+      // 4. Paginación (limit=1, page=1)
+      const resPaginated = await request(app)
+        .get('/api/schedules/substitutions')
+        .query({ page: 1, limit: 1 })
+        .set('Authorization', `Bearer ${coordToken}`);
+
+      expect(resPaginated.status).toBe(200);
+      expect(resPaginated.body.data.length).toBe(1);
+      expect(resPaginated.body.page).toBe(1);
+      expect(resPaginated.body.limit).toBe(1);
+      expect(resPaginated.body.total).toBeGreaterThanOrEqual(2);
+      expect(resPaginated.body.totalPages).toBeGreaterThanOrEqual(2);
+    });
+  });
 });
