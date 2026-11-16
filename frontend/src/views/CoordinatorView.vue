@@ -537,7 +537,7 @@
 
         <!-- TAB 6: HISTORIAL DE SUPLENCIAS -->
         <div v-if="viewTab === 'substitutions'" class="pa-2" data-testid="tab-content-substitutions">
-          <div class="d-flex flex-wrap justify-space-between align-center mb-4">
+          <div class="d-flex flex-wrap justify-space-between align-center mb-4 ga-2">
             <div>
               <div class="text-h6 font-weight-bold text-primary d-flex align-center">
                 <v-icon icon="mdi-history" class="mr-2"></v-icon>
@@ -547,9 +547,34 @@
                 Registro auditable de reasignaciones y suplencias docentes efectuadas en la institución.
               </div>
             </div>
-            <v-chip color="primary" variant="tonal" class="font-weight-bold" data-testid="chip-total-substitutions">
-              {{ filteredSubstitutions.length }} sustitución(es)
-            </v-chip>
+            <div class="d-flex align-center ga-3">
+              <v-chip color="primary" variant="tonal" class="font-weight-bold" data-testid="chip-total-substitutions">
+                {{ filteredSubstitutions.length }} sustitución(es)
+              </v-chip>
+
+              <!-- Botón Exportar Reporte Excel -->
+              <v-tooltip
+                :disabled="isOnline"
+                text="La exportación no está disponible en modo sin conexión"
+                location="top"
+              >
+                <template #activator="{ props: tooltipProps }">
+                  <span v-bind="tooltipProps" class="d-inline-block">
+                    <v-btn
+                      color="success"
+                      variant="elevated"
+                      prepend-icon="mdi-file-excel"
+                      :loading="isExportingSubstitutions"
+                      :disabled="!isOnline || isExportingSubstitutions"
+                      data-testid="btn-export-substitutions-excel"
+                      @click="exportSubstitutionsExcel"
+                    >
+                      Exportar Reporte Excel
+                    </v-btn>
+                  </span>
+                </template>
+              </v-tooltip>
+            </div>
           </div>
 
           <!-- Barra de Filtros Superior -->
@@ -2003,6 +2028,7 @@ const searchSubstitutionText = ref('');
 const substitutionTeacherFilter = ref('');
 const substitutionDateFrom = ref('');
 const substitutionDateTo = ref('');
+const isExportingSubstitutions = ref(false);
 
 async function loadSubstitutions() {
   if (!canViewSubstitutions.value) return;
@@ -2029,6 +2055,71 @@ function clearSubstitutionFilters() {
   substitutionTeacherFilter.value = '';
   substitutionDateFrom.value = '';
   substitutionDateTo.value = '';
+}
+
+async function exportSubstitutionsExcel() {
+  if (!isOnline.value) return;
+  if (isExportingSubstitutions.value) return;
+  isExportingSubstitutions.value = true;
+  try {
+    const params = {};
+    if (searchSubstitutionText.value && searchSubstitutionText.value.trim() !== '') {
+      params.search = searchSubstitutionText.value.trim();
+    }
+    if (substitutionTeacherFilter.value) {
+      params.teacher_id = substitutionTeacherFilter.value;
+    }
+    if (substitutionDateFrom.value) {
+      params.from_date = substitutionDateFrom.value;
+    }
+    if (substitutionDateTo.value) {
+      params.to_date = substitutionDateTo.value;
+    }
+
+    const response = await api.get('/schedules/substitutions/export', {
+      params,
+      responseType: 'blob'
+    });
+
+    const blob = new Blob([response.data], {
+      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    });
+
+    if (typeof window.URL?.createObjectURL === 'function') {
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', 'reporte_sustituciones.xlsx');
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+    }
+  } catch (err) {
+    console.error('Error al exportar reporte de sustituciones:', err);
+    let errorMsg = 'Error al exportar el reporte de sustituciones en Excel';
+    if (err.response?.data instanceof Blob) {
+      try {
+        const text = await err.response.data.text();
+        const json = JSON.parse(text);
+        if (json.error) errorMsg = json.error;
+      } catch {
+        // fallback to default error message
+      }
+    } else if (err.response?.data?.error) {
+      errorMsg = err.response.data.error;
+    } else if (err.message) {
+      errorMsg = err.message;
+    }
+
+    snackbar.value = {
+      show: true,
+      text: errorMsg,
+      color: 'error'
+    };
+  } finally {
+    isExportingSubstitutions.value = false;
+  }
 }
 
 const filteredSubstitutions = computed(() => {

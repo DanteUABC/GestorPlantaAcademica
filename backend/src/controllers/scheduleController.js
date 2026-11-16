@@ -1265,6 +1265,170 @@ async function getSubstitutionsHistory(req, res) {
   }
 }
 
+// -------------------------------------------------------------
+// EXPORTACIÓN DE REPORTE DE HISTORIAL DE SUSTITUCIONES (.XLSX)
+// -------------------------------------------------------------
+
+async function exportSubstitutionsExcel(req, res) {
+  try {
+    const tenantId = req.user?.tenant_id || req.tenant_id;
+
+    if (!tenantId) {
+      return res.status(403).json({ error: 'No se pudo determinar la institución (tenant)' });
+    }
+
+    const {
+      teacher_id,
+      from_date,
+      to_date,
+      start_date,
+      end_date,
+      search
+    } = req.query;
+
+    const filterConditions = ['ss.tenant_id = $1'];
+    const filterParams = [tenantId];
+    let paramIndex = 2;
+
+    if (teacher_id && String(teacher_id).trim() !== '') {
+      filterConditions.push(`(ss.original_teacher_id = $${paramIndex} OR ss.substitute_teacher_id = $${paramIndex})`);
+      filterParams.push(String(teacher_id).trim());
+      paramIndex += 1;
+    }
+
+    const effectiveFrom = (from_date || start_date || '').trim();
+    const effectiveTo = (to_date || end_date || '').trim();
+
+    if (effectiveFrom && effectiveTo) {
+      filterConditions.push(`ss.effective_date BETWEEN $${paramIndex}::date AND $${paramIndex + 1}::date`);
+      filterParams.push(effectiveFrom, effectiveTo);
+      paramIndex += 2;
+    } else if (effectiveFrom) {
+      filterConditions.push(`ss.effective_date >= $${paramIndex}::date`);
+      filterParams.push(effectiveFrom);
+      paramIndex += 1;
+    } else if (effectiveTo) {
+      filterConditions.push(`ss.effective_date <= $${paramIndex}::date`);
+      filterParams.push(effectiveTo);
+      paramIndex += 1;
+    }
+
+    if (search && String(search).trim() !== '') {
+      const searchPattern = `%${String(search).trim()}%`;
+      filterConditions.push(
+        `(
+          sub.name ILIKE $${paramIndex}
+          OR sub.code ILIKE $${paramIndex}
+          OR COALESCE(ss.reason, '') ILIKE $${paramIndex}
+          OR TRIM(CONCAT(COALESCE(u_orig.nombre, ''), ' ', COALESCE(u_orig.apellidos, ''))) ILIKE $${paramIndex}
+          OR TRIM(CONCAT(COALESCE(u_sub.nombre, ''), ' ', COALESCE(u_sub.apellidos, ''))) ILIKE $${paramIndex}
+        )`
+      );
+      filterParams.push(searchPattern);
+      paramIndex += 1;
+    }
+
+    const whereClause = filterConditions.join(' AND ');
+
+    const querySql = `
+      SELECT
+        TO_CHAR(ss.effective_date, 'YYYY-MM-DD') AS effective_date,
+        sub.code AS subject_code,
+        sub.name AS subject_name,
+        sch.group_code,
+        sch.day_of_week,
+        sch.start_time,
+        sch.end_time,
+        cls.name AS classroom_name,
+        TRIM(CONCAT(COALESCE(u_orig.nombre, ''), ' ', COALESCE(u_orig.apellidos, ''))) AS original_teacher_name,
+        COALESCE(u_orig.identificador, '') AS original_teacher_identifier,
+        TRIM(CONCAT(COALESCE(u_sub.nombre, ''), ' ', COALESCE(u_sub.apellidos, ''))) AS substitute_teacher_name,
+        COALESCE(u_sub.identificador, '') AS substitute_teacher_identifier,
+        COALESCE(ss.reason, '') AS reason,
+        COALESCE(TO_CHAR(ss.created_at, 'YYYY-MM-DD HH24:MI:SS'), '') AS created_at_formatted,
+        ss.created_at
+      FROM schedule_substitutions ss
+      JOIN schedules sch ON ss.schedule_id = sch.id
+      JOIN subjects sub ON sch.subject_id = sub.id
+      JOIN classrooms cls ON sch.classroom_id = cls.id
+      JOIN users u_orig ON ss.original_teacher_id = u_orig.id
+      JOIN users u_sub ON ss.substitute_teacher_id = u_sub.id
+      WHERE ${whereClause}
+      ORDER BY ss.created_at DESC, ss.effective_date DESC
+    `;
+
+    const result = await pool.query(querySql, filterParams);
+    const rows = result?.rows || [];
+
+    const HEADERS = [
+      'Fecha Efectiva',
+      'Clave',
+      'Materia',
+      'Grupo',
+      'Día',
+      'Horario',
+      'Aula',
+      'Docente Original',
+      'Nómina Original',
+      'Docente Suplente',
+      'Nómina Suplente',
+      'Motivo',
+      'Fecha de Registro'
+    ];
+
+    const data = rows.map((row) => ({
+      'Fecha Efectiva': row.effective_date || '',
+      'Clave': row.subject_code || '',
+      'Materia': row.subject_name || '',
+      'Grupo': row.group_code || '',
+      'Día': row.day_of_week || '',
+      'Horario': row.start_time && row.end_time ? `${row.start_time} - ${row.end_time}` : (row.start_time || row.end_time || ''),
+      'Aula': row.classroom_name || '',
+      'Docente Original': row.original_teacher_name || '',
+      'Nómina Original': row.original_teacher_identifier || '',
+      'Docente Suplente': row.substitute_teacher_name || '',
+      'Nómina Suplente': row.substitute_teacher_identifier || '',
+      'Motivo': row.reason || '',
+      'Fecha de Registro': row.created_at_formatted || (row.created_at ? (row.created_at instanceof Date ? row.created_at.toISOString().replace('T', ' ').substring(0, 19) : String(row.created_at).replace('T', ' ').substring(0, 19)) : '')
+    }));
+
+    let worksheet;
+    if (data.length === 0) {
+      worksheet = xlsx.utils.aoa_to_sheet([HEADERS]);
+    } else {
+      worksheet = xlsx.utils.json_to_sheet(data, { header: HEADERS });
+    }
+
+    worksheet['!cols'] = [
+      { wch: 15 }, // Fecha Efectiva
+      { wch: 12 }, // Clave
+      { wch: 30 }, // Materia
+      { wch: 10 }, // Grupo
+      { wch: 12 }, // Día
+      { wch: 16 }, // Horario
+      { wch: 20 }, // Aula
+      { wch: 30 }, // Docente Original
+      { wch: 18 }, // Nómina Original
+      { wch: 30 }, // Docente Suplente
+      { wch: 18 }, // Nómina Suplente
+      { wch: 35 }, // Motivo
+      { wch: 20 }  // Fecha de Registro
+    ];
+
+    const workbook = xlsx.utils.book_new();
+    xlsx.utils.book_append_sheet(workbook, worksheet, 'Sustituciones');
+
+    const buffer = xlsx.write(workbook, { type: 'buffer', bookType: 'xlsx' });
+
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', 'attachment; filename="reporte_sustituciones.xlsx"');
+    return res.status(200).send(buffer);
+  } catch (error) {
+    console.error('Error al exportar reporte de sustituciones:', error);
+    return res.status(500).json({ error: 'Error al exportar reporte de sustituciones', details: error.message });
+  }
+}
+
 module.exports = {
   createSchedule,
   getCoordinatorSchedules,
@@ -1273,6 +1437,7 @@ module.exports = {
   uploadExcelMiddleware,
   uploadExcelSchedule,
   exportSchedules,
+  exportSubstitutionsExcel,
   parseExcelBuffer,
   mapExcelRows,
   parseExcelTime,
@@ -1284,6 +1449,7 @@ module.exports = {
 };
 
 module.exports.exportSchedules = exportSchedules;
+module.exports.exportSubstitutionsExcel = exportSubstitutionsExcel;
 module.exports.getAvailableSubstitutes = getAvailableSubstitutes;
 module.exports.transferSchedule = transferSchedule;
 module.exports.getSubstitutionsHistory = getSubstitutionsHistory;

@@ -177,7 +177,7 @@ const completeStubs = {
   },
   'v-tooltip': {
     props: ['text'],
-    template: '<span class="v-tooltip" :title="text"><slot /></span>'
+    template: '<span class="v-tooltip" :title="text"><slot name="activator" :props="{}" /><slot /></span>'
   },
   'v-form': { template: '<form @submit.prevent><slot /></form>' },
   'ExcelScheduleUploader': true,
@@ -409,5 +409,113 @@ describe('Pestaña de Bitácora e Historial de Suplencias en CoordinatorView.vue
 
     const finalCalls = api.get.mock.calls.filter(c => c[0] === '/schedules/substitutions').length;
     expect(finalCalls).toBeGreaterThan(initialCalls);
+  });
+
+  describe('Exportación de Reporte en Excel (.xlsx)', () => {
+    it('6. Renderizado: el botón "Exportar Reporte Excel" se muestra en la barra superior de la pestaña substitutions', async () => {
+      const wrapper = mount(CoordinatorView, {
+        global: { plugins: [pinia], stubs: completeStubs }
+      });
+      await flushPromises();
+
+      wrapper.vm.viewTab = 'substitutions';
+      await wrapper.vm.$nextTick();
+
+      const exportBtn = wrapper.find('[data-testid="btn-export-substitutions-excel"]');
+      expect(exportBtn.exists()).toBe(true);
+      expect(exportBtn.text()).toContain('Exportar Reporte Excel');
+    });
+
+    it('7. Descarga con filtros: al hacer clic envía GET /schedules/substitutions/export con responseType blob y los filtros activos', async () => {
+      const mockCreateObjectURL = vi.fn(() => 'blob:http://localhost/mock-blob-uuid');
+      const mockRevokeObjectURL = vi.fn();
+      window.URL.createObjectURL = mockCreateObjectURL;
+      window.URL.revokeObjectURL = mockRevokeObjectURL;
+
+      const wrapper = mount(CoordinatorView, {
+        global: { plugins: [pinia], stubs: completeStubs }
+      });
+      await flushPromises();
+
+      wrapper.vm.viewTab = 'substitutions';
+      await wrapper.vm.$nextTick();
+
+      // Configurar filtros activos
+      wrapper.vm.searchSubstitutionText = 'robótica';
+      wrapper.vm.substitutionTeacherFilter = 'teach-1';
+      wrapper.vm.substitutionDateFrom = '2026-11-01';
+      wrapper.vm.substitutionDateTo = '2026-11-30';
+      await wrapper.vm.$nextTick();
+
+      api.get.mockImplementation((url) => {
+        if (url === '/schedules/substitutions/export') {
+          return Promise.resolve({ data: new Uint8Array([1, 2, 3]) });
+        }
+        return Promise.resolve({ data: [] });
+      });
+
+      const exportBtn = wrapper.find('[data-testid="btn-export-substitutions-excel"]');
+      await exportBtn.trigger('click');
+      await flushPromises();
+
+      const exportCall = api.get.mock.calls.find(c => c[0] === '/schedules/substitutions/export');
+      expect(exportCall).toBeDefined();
+      expect(exportCall[1].responseType).toBe('blob');
+      expect(exportCall[1].params).toEqual({
+        search: 'robótica',
+        teacher_id: 'teach-1',
+        from_date: '2026-11-01',
+        to_date: '2026-11-30'
+      });
+      expect(mockCreateObjectURL).toHaveBeenCalled();
+      expect(mockRevokeObjectURL).toHaveBeenCalled();
+    });
+
+    it('8. Estado loading y notificación de error: muestra loading durante la llamada y alerta en v-snackbar ante rechazo', async () => {
+      let resolveExport;
+      const exportPromise = new Promise((resolve, reject) => {
+        resolveExport = reject;
+      });
+
+      api.get.mockImplementation((url) => {
+        if (url === '/schedules/substitutions/export') {
+          return exportPromise;
+        }
+        return Promise.resolve({ data: [] });
+      });
+
+      const wrapper = mount(CoordinatorView, {
+        global: { plugins: [pinia], stubs: completeStubs }
+      });
+      await flushPromises();
+
+      wrapper.vm.viewTab = 'substitutions';
+      await wrapper.vm.$nextTick();
+
+      expect(wrapper.vm.isExportingSubstitutions).toBe(false);
+
+      const exportBtn = wrapper.find('[data-testid="btn-export-substitutions-excel"]');
+      await exportBtn.trigger('click');
+      await wrapper.vm.$nextTick();
+
+      // Verificar estado loading
+      expect(wrapper.vm.isExportingSubstitutions).toBe(true);
+
+      // Simular fallo de la petición
+      resolveExport({
+        response: {
+          data: { error: 'Fallo al generar el archivo Excel en el servidor' }
+        }
+      });
+      await flushPromises();
+
+      // Verificar que finalizó el loading
+      expect(wrapper.vm.isExportingSubstitutions).toBe(false);
+
+      // Verificar que el snackbar muestra el mensaje de error
+      expect(wrapper.vm.snackbar.show).toBe(true);
+      expect(wrapper.vm.snackbar.text).toBe('Fallo al generar el archivo Excel en el servidor');
+      expect(wrapper.vm.snackbar.color).toBe('error');
+    });
   });
 });
