@@ -118,6 +118,12 @@ app.delete('/api/teachers/:teacherId/restrictions/:restrictionId', teacherRestri
 // Módulo Coordinador: Armado de Horarios
 app.post('/api/schedules', requireRole(['Coordinador', 'Administrador']), scheduleController.createSchedule);
 app.get('/api/schedules/coordinator', requireRole(['Coordinador', 'Administrador']), scheduleController.getCoordinatorSchedules);
+app.get(
+  '/api/schedules/export-excel',
+  authenticateJWT,
+  requireRole(['Coordinador', 'Administrador', 'role-coord', 'role-admin']),
+  scheduleController.exportSchedulesExcel
+);
 app.get('/api/schedules/substitutions', authenticateJWT, requireRole(['Coordinador', 'Administrador']), scheduleController.getSubstitutionsHistory);
 app.get('/api/schedules/:id/available-substitutes', requireRole(['Coordinador', 'Administrador']), scheduleController.getAvailableSubstitutes);
 app.post('/api/schedules/:id/transfer', requireRole(['Coordinador', 'Administrador']), scheduleController.transferSchedule);

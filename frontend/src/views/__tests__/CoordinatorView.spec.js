@@ -393,4 +393,36 @@ describe('CoordinatorView.vue - Búsqueda de Maestro, Materia y Altas Rápidas I
       }
     });
   });
+
+  describe('Exportación de Sábana de Horarios a Excel (Task 4.2)', () => {
+    it('invoca GET /schedules/export-excel con responseType blob al hacer clic en "Descargar Sábana Excel"', async () => {
+      const originalImpl = api.get.getMockImplementation();
+      api.get.mockImplementation((url, configArg) => {
+        if (url === '/schedules/export-excel') {
+          return Promise.resolve({ data: new Blob(['xlsx-mock']) });
+        }
+        return originalImpl(url, configArg);
+      });
+
+      try {
+        const wrapper = getWrapper();
+        await flushPromises();
+
+        const excelBtn = wrapper.find('[data-testid="btn-export-schedule-excel"]');
+        expect(excelBtn.exists()).toBe(true);
+
+        await excelBtn.trigger('click');
+        await flushPromises();
+
+        expect(api.get).toHaveBeenCalledWith('/schedules/export-excel', {
+          responseType: 'blob'
+        });
+        expect(wrapper.vm.exportingExcel).toBe(false);
+        expect(wrapper.vm.snackbar.show).toBe(true);
+        expect(wrapper.vm.snackbar.color).toBe('success');
+      } finally {
+        api.get.mockImplementation(originalImpl);
+      }
+    });
+  });
 });

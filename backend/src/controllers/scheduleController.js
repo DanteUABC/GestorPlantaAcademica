@@ -1,5 +1,6 @@
 const { query, pool } = require('../db');
 const xlsx = require('xlsx');
+const { buildSchedulesExcelBuffer } = require('../utils/scheduleExcelExporter');
 
 // Helper to convert 'HH:MM' string to minutes from 00:00 for easy comparison
 function timeToMinutes(t) {
@@ -848,6 +849,69 @@ async function exportSchedules(req, res) {
 }
 
 // -------------------------------------------------------------
+// EXPORTACIÓN OFICIAL SÁBANA DE HORARIOS (.XLSX CON EXCELJS - TASK 4.2)
+// -------------------------------------------------------------
+
+async function exportSchedulesExcel(req, res) {
+  try {
+    const tenantId = req.tenant_id || req.user?.tenant_id;
+
+    if (!tenantId) {
+      return res.status(403).json({ error: 'No se pudo determinar la institución (tenant)' });
+    }
+
+    const result = await pool.query(
+      `SELECT
+         s.id,
+         COALESCE(s.group_code, 'G1') AS group_code,
+         sub.code AS subject_code,
+         sub.name AS subject_name,
+         sub.credits AS subject_credits,
+         TRIM(CONCAT(COALESCE(t.nombre, ''), ' ', COALESCE(t.apellidos, ''))) AS teacher_name,
+         COALESCE(t.identificador, '') AS teacher_identifier,
+         cr.name AS classroom_name,
+         COALESCE(cr.building, '') AS classroom_building,
+         COALESCE(cr.type, 'Aula Teórica') AS classroom_type,
+         s.day_of_week,
+         s.start_time,
+         s.end_time
+       FROM schedules s
+       JOIN subjects sub ON s.subject_id = sub.id AND sub.tenant_id = s.tenant_id
+       JOIN users t ON s.teacher_id = t.id AND t.tenant_id = s.tenant_id
+       JOIN classrooms cr ON s.classroom_id = cr.id AND cr.tenant_id = s.tenant_id
+       WHERE s.tenant_id = $1
+       ORDER BY
+         COALESCE(s.group_code, 'G1') ASC,
+         CASE s.day_of_week
+           WHEN 'Lunes' THEN 1
+           WHEN 'Martes' THEN 2
+           WHEN 'Miércoles' THEN 3
+           WHEN 'Miercoles' THEN 3
+           WHEN 'Jueves' THEN 4
+           WHEN 'Viernes' THEN 5
+           WHEN 'Sábado' THEN 6
+           WHEN 'Sabado' THEN 6
+           ELSE 7
+         END ASC,
+         s.start_time ASC`,
+      [tenantId]
+    );
+
+    const buffer = await buildSchedulesExcelBuffer(result?.rows || []);
+
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', 'attachment; filename="sabana_horarios.xlsx"');
+    return res.status(200).send(buffer);
+  } catch (err) {
+    console.error('Error al exportar sábana de horarios en Excel:', err);
+    return res.status(500).json({
+      error: 'Error al generar la sábana de horarios en Excel',
+      details: err.message
+    });
+  }
+}
+
+// -------------------------------------------------------------
 // REASIGNACIÓN Y SUPLENCIAS DE HORARIOS (ÉPICA 3 - TASKS 3.2 Y 3.3)
 // -------------------------------------------------------------
 
@@ -1273,6 +1337,7 @@ module.exports = {
   uploadExcelMiddleware,
   uploadExcelSchedule,
   exportSchedules,
+  exportSchedulesExcel,
   parseExcelBuffer,
   mapExcelRows,
   parseExcelTime,
@@ -1284,6 +1349,7 @@ module.exports = {
 };
 
 module.exports.exportSchedules = exportSchedules;
+module.exports.exportSchedulesExcel = exportSchedulesExcel;
 module.exports.getAvailableSubstitutes = getAvailableSubstitutes;
 module.exports.transferSchedule = transferSchedule;
 module.exports.getSubstitutionsHistory = getSubstitutionsHistory;

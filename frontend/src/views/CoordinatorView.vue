@@ -33,6 +33,18 @@
           Carga Masiva Excel
         </v-btn>
         <v-btn
+          color="teal-darken-1"
+          variant="tonal"
+          size="large"
+          prepend-icon="mdi-file-excel-outline"
+          class="text-none font-weight-bold"
+          :loading="exportingExcel"
+          data-testid="btn-export-schedule-excel"
+          @click="descargarSabanaExcel"
+        >
+          Descargar Sábana Excel
+        </v-btn>
+        <v-btn
           color="primary"
           size="large"
           prepend-icon="mdi-plus"
@@ -2351,6 +2363,47 @@ const filteredSchedules = computed(() => {
   if (!selectedTeacherFilter.value) return schedules.value;
   return schedules.value.filter(s => s.teacher_id === selectedTeacherFilter.value);
 });
+
+const exportingExcel = ref(false);
+
+async function descargarSabanaExcel() {
+  exportingExcel.value = true;
+  try {
+    const response = await api.get('/schedules/export-excel', {
+      responseType: 'blob'
+    });
+    const blob = new Blob([response.data], {
+      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    });
+
+    if (typeof window !== 'undefined' && window.URL && typeof window.URL.createObjectURL === 'function') {
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', 'sabana_horarios.xlsx');
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      if (typeof window.URL.revokeObjectURL === 'function') {
+        window.URL.revokeObjectURL(url);
+      }
+    }
+
+    snackbar.value = {
+      show: true,
+      text: 'Sábana de horarios descargada exitosamente',
+      color: 'success'
+    };
+  } catch (err) {
+    snackbar.value = {
+      show: true,
+      text: err.response?.data?.error || 'Error al descargar la sábana de horarios en Excel',
+      color: 'error'
+    };
+  } finally {
+    exportingExcel.value = false;
+  }
+}
 
 function imprimirHorario() {
   return generateOfficialSchedulePdf({
