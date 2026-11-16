@@ -116,19 +116,53 @@
             Atención: Asignar esta suplencia hará que el docente supere sus horas contratadas ({{ selectedSubstitute.horas_contratadas }}h).
           </v-alert>
 
-          <!-- Fecha Efectiva -->
-          <v-text-field
-            v-model="effectiveDate"
-            label="Fecha Efectiva *"
-            type="date"
-            variant="outlined"
-            density="comfortable"
-            prepend-inner-icon="mdi-calendar"
-            class="mb-3"
+          <!-- Selector de Modalidad de Reasignación -->
+          <v-radio-group
+            v-model="substitutionType"
+            inline
+            label="Modalidad de Reasignación *"
+            class="mb-2"
             :disabled="submitting"
-            :rules="[v => !!v || 'La fecha efectiva es obligatoria']"
-            data-testid="input-effective-date"
-          ></v-text-field>
+            data-testid="substitution-type-selector"
+          >
+            <v-radio label="Transferencia Definitiva" value="definitiva"></v-radio>
+            <v-radio label="Suplencia Temporal" value="temporal"></v-radio>
+          </v-radio-group>
+
+          <v-row dense class="mb-1">
+            <v-col cols="12" :sm="substitutionType === 'temporal' ? 6 : 12">
+              <!-- Fecha Efectiva / Inicio -->
+              <v-text-field
+                v-model="effectiveDate"
+                :label="substitutionType === 'temporal' ? 'Fecha de Inicio *' : 'Fecha Efectiva *'"
+                type="date"
+                variant="outlined"
+                density="comfortable"
+                prepend-inner-icon="mdi-calendar"
+                :disabled="submitting"
+                :rules="[v => !!v || 'La fecha es obligatoria']"
+                data-testid="input-effective-date"
+              ></v-text-field>
+            </v-col>
+            <v-col v-if="substitutionType === 'temporal'" cols="12" sm="6">
+              <!-- Fecha de Fin -->
+              <v-text-field
+                v-model="endDate"
+                label="Fecha de Fin *"
+                type="date"
+                variant="outlined"
+                density="comfortable"
+                prepend-inner-icon="mdi-calendar-end"
+                :min="effectiveDate"
+                :disabled="submitting"
+                :rules="[
+                  v => !!v || 'La fecha de fin es obligatoria',
+                  v => !v || !effectiveDate || v >= effectiveDate || 'La fecha de fin debe ser posterior o igual a la fecha de inicio'
+                ]"
+                data-testid="input-end-date"
+              ></v-text-field>
+            </v-col>
+          </v-row>
 
           <!-- Motivo de la Suplencia -->
           <v-textarea
@@ -162,7 +196,7 @@
               class="text-none font-weight-bold"
               prepend-icon="mdi-check"
               :loading="submitting"
-              :disabled="!selectedSubstituteId || submitting"
+              :disabled="isSubmitDisabled"
               data-testid="btn-confirm-transfer"
             >
               Confirmar Reasignación
@@ -195,6 +229,8 @@ const availableSubstitutes = ref([]);
 const loadingSubstitutes = ref(false);
 const submitting = ref(false);
 const selectedSubstituteId = ref(null);
+const substitutionType = ref('definitiva');
+const endDate = ref('');
 const reason = ref('');
 const effectiveDate = ref(new Date().toISOString().split('T')[0]);
 const errorMessage = ref('');
@@ -202,6 +238,15 @@ const errorMessage = ref('');
 const selectedSubstitute = computed(() => {
   if (!selectedSubstituteId.value) return null;
   return availableSubstitutes.value.find(s => s.id === selectedSubstituteId.value) || null;
+});
+
+const isSubmitDisabled = computed(() => {
+  if (!selectedSubstituteId.value || submitting.value) return true;
+  if (substitutionType.value === 'temporal') {
+    if (!endDate.value) return true;
+    if (effectiveDate.value && endDate.value < effectiveDate.value) return true;
+  }
+  return false;
 });
 
 function formatSubstituteTitle(sub) {
@@ -244,6 +289,8 @@ watch(
   (isOpen) => {
     if (isOpen && props.schedule?.id) {
       selectedSubstituteId.value = null;
+      substitutionType.value = 'definitiva';
+      endDate.value = '';
       reason.value = '';
       effectiveDate.value = new Date().toISOString().split('T')[0];
       errorMessage.value = '';
@@ -262,7 +309,9 @@ async function submitTransfer() {
     const payload = {
       substitute_teacher_id: selectedSubstituteId.value,
       reason: reason.value ? reason.value.trim() : null,
-      effective_date: effectiveDate.value || new Date().toISOString().split('T')[0]
+      effective_date: effectiveDate.value || new Date().toISOString().split('T')[0],
+      substitution_type: substitutionType.value,
+      end_date: substitutionType.value === 'temporal' ? endDate.value : null
     };
 
     const res = await api.post(`/schedules/${props.schedule.id}/transfer`, payload);

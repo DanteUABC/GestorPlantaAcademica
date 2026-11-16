@@ -26,7 +26,11 @@ describe('ScheduleTransferModal.vue - Reasignación de Horarios y Suplencias', (
     'v-autocomplete': true,
     'v-text-field': true,
     'v-textarea': true,
-    'v-list-item': true
+    'v-list-item': true,
+    'v-radio-group': true,
+    'v-radio': true,
+    'v-row': true,
+    'v-col': true
   };
 
   const dummySchedule = {
@@ -143,7 +147,9 @@ describe('ScheduleTransferModal.vue - Reasignación de Horarios y Suplencias', (
     expect(api.post).toHaveBeenCalledWith('/schedules/sch-101/transfer', {
       substitute_teacher_id: 'usr-prof-2',
       reason: 'Incapacidad médica temporal',
-      effective_date: '2026-11-05'
+      effective_date: '2026-11-05',
+      substitution_type: 'definitiva',
+      end_date: null
     });
 
     expect(wrapper.emitted('transferred')).toBeTruthy();
@@ -214,5 +220,64 @@ describe('ScheduleTransferModal.vue - Reasignación de Horarios y Suplencias', (
     // 4. El botón de confirmación NO debe deshabilitarse por esta alerta informativa
     const confirmBtn = wrapper.find('[data-testid="btn-confirm-transfer"]');
     expect(confirmBtn.attributes('disabled')).toBe('false');
+  });
+
+  it('permite seleccionar modalidad temporal, valida fechas y envía payload correspondiente', async () => {
+    api.get.mockResolvedValueOnce({ data: dummySubstitutes });
+    api.post.mockResolvedValueOnce({
+      data: {
+        message: 'Suplencia temporal registrada exitosamente',
+        schedule_id: 'sch-101'
+      }
+    });
+
+    const wrapper = mount(ScheduleTransferModal, {
+      props: {
+        modelValue: true,
+        schedule: dummySchedule
+      },
+      global: { stubs: vuetifyStubs }
+    });
+
+    await wrapper.vm.$nextTick();
+
+    // 1. Modalidad por defecto es 'definitiva'
+    expect(wrapper.vm.substitutionType).toBe('definitiva');
+    expect(wrapper.find('[data-testid="substitution-type-selector"]').exists()).toBe(true);
+    expect(wrapper.find('[data-testid="input-end-date"]').exists()).toBe(false);
+
+    // 2. Cambiar a modalidad 'temporal' -> se muestra el input de fecha de fin
+    wrapper.vm.substitutionType = 'temporal';
+    await wrapper.vm.$nextTick();
+    expect(wrapper.find('[data-testid="input-end-date"]').exists()).toBe(true);
+
+    // 3. Seleccionar docente pero sin fecha fin -> botón deshabilitado
+    wrapper.vm.selectedSubstituteId = 'usr-prof-2';
+    wrapper.vm.effectiveDate = '2026-11-10';
+    wrapper.vm.endDate = '';
+    await wrapper.vm.$nextTick();
+    expect(wrapper.vm.isSubmitDisabled).toBe(true);
+
+    // 4. Fecha fin anterior a fecha efectiva -> botón deshabilitado
+    wrapper.vm.endDate = '2026-11-09';
+    await wrapper.vm.$nextTick();
+    expect(wrapper.vm.isSubmitDisabled).toBe(true);
+
+    // 5. Fecha fin válida (>= effectiveDate) -> botón habilitado y envío de payload
+    wrapper.vm.endDate = '2026-11-20';
+    wrapper.vm.reason = 'Incapacidad médica 10 días';
+    await wrapper.vm.$nextTick();
+    expect(wrapper.vm.isSubmitDisabled).toBe(false);
+
+    await wrapper.vm.submitTransfer();
+
+    expect(api.post).toHaveBeenCalledWith('/schedules/sch-101/transfer', {
+      substitute_teacher_id: 'usr-prof-2',
+      reason: 'Incapacidad médica 10 días',
+      effective_date: '2026-11-10',
+      substitution_type: 'temporal',
+      end_date: '2026-11-20'
+    });
+    expect(wrapper.emitted('transferred')).toBeTruthy();
   });
 });

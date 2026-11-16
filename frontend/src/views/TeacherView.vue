@@ -97,6 +97,28 @@
                     {{ item.start_time }} - {{ item.end_time }}
                   </div>
                   <div class="text-subtitle-2 font-weight-bold mt-1">{{ item.subject_name }}</div>
+
+                  <!-- Insignia de Suplencia Temporal Activa -->
+                  <div v-if="item.active_substitution" class="my-1">
+                    <v-chip
+                      size="x-small"
+                      color="amber-darken-3"
+                      variant="flat"
+                      class="font-weight-bold"
+                      data-testid="badge-temp-substitution"
+                    >
+                      <v-icon icon="mdi-account-clock" size="x-small" class="mr-1"></v-icon>
+                      Suplente temporal hasta {{ formatDisplayDate(item.active_substitution.end_date) }}
+                    </v-chip>
+                    <div class="text-caption text-amber-darken-4 font-weight-medium">
+                      <template v-if="item.active_substitution.substitute_teacher_id === authStore.user?.id">
+                        Cubriendo a: {{ item.active_substitution.original_teacher_name }}
+                      </template>
+                      <template v-else>
+                        Cubierto por: {{ item.active_substitution.substitute_teacher_name }}
+                      </template>
+                    </div>
+                  </div>
                   <div class="text-caption text-grey-darken-2">
                     <v-icon icon="mdi-door" size="x-small"></v-icon>
                     {{ item.classroom_name }}
@@ -143,6 +165,25 @@ function formatDate(dt) {
     return new Date(dt).toLocaleDateString('es-MX', { year: 'numeric', month: 'short', day: 'numeric' });
   } catch {
     return dt;
+  }
+}
+
+function formatDisplayDate(val) {
+  if (!val) return '';
+  const dateStr = typeof val === 'string' ? val.split('T')[0] : '';
+  if (dateStr && dateStr.includes('-')) {
+    const [y, m, d] = dateStr.split('-');
+    return `${d}/${m}/${y}`;
+  }
+  try {
+    const d = new Date(val);
+    if (isNaN(d.getTime())) return String(val);
+    const day = String(d.getDate()).padStart(2, '0');
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const year = d.getFullYear();
+    return `${day}/${month}/${year}`;
+  } catch {
+    return String(val);
   }
 }
 

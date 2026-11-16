@@ -104,6 +104,14 @@
           <v-tab value="subjects" prepend-icon="mdi-book-education-outline" data-testid="tab-subjects-catalog">Catálogo de Materias</v-tab>
           <v-tab value="teachers" prepend-icon="mdi-account-tie-outline" data-testid="tab-teachers-catalog">Catálogo de Docentes</v-tab>
           <v-tab value="classrooms" to="/classrooms" prepend-icon="mdi-office-building-cog-outline" data-testid="tab-classroom-catalog">Catálogo de Aulas</v-tab>
+          <v-tab
+            v-if="canViewSubstitutions"
+            value="substitutions"
+            prepend-icon="mdi-history"
+            data-testid="tab-substitutions-history"
+          >
+            Historial de Suplencias
+          </v-tab>
           <v-tab to="/analytics" prepend-icon="mdi-chart-box-outline">Analítica Operativa</v-tab>
         </v-tabs>
         <div class="d-flex align-center ga-3 my-2">
@@ -214,6 +222,23 @@
                       <v-icon icon="mdi-account-tie" size="x-small"></v-icon>
                       {{ item.teacher_name }}
                     </div>
+
+                    <!-- Insignia de Suplencia Temporal Activa -->
+                    <div v-if="item.active_substitution" class="my-1">
+                      <v-chip
+                        size="x-small"
+                        color="amber-darken-3"
+                        variant="flat"
+                        class="font-weight-bold"
+                        data-testid="badge-temp-substitution"
+                      >
+                        <v-icon icon="mdi-account-clock" size="x-small" class="mr-1"></v-icon>
+                        Suplente temporal hasta {{ formatDisplayDate(item.active_substitution.end_date) }}
+                      </v-chip>
+                      <div class="text-caption text-amber-darken-4 font-weight-medium">
+                        {{ item.active_substitution.substitute_teacher_name }} (Titular: {{ item.active_substitution.original_teacher_name }})
+                      </div>
+                    </div>
                     <div class="text-caption text-grey-darken-2">
                       <v-icon icon="mdi-door" size="x-small"></v-icon>
                       {{ item.classroom_name }}
@@ -262,6 +287,21 @@
                   <div class="d-flex align-center">
                     <v-icon icon="mdi-account-tie" size="small" class="mr-1 text-grey"></v-icon>
                     <span>{{ sch.teacher_name }}</span>
+                  </div>
+                  <div v-if="sch.active_substitution" class="mt-1">
+                    <v-chip
+                      size="x-small"
+                      color="amber-darken-3"
+                      variant="flat"
+                      class="font-weight-bold"
+                      data-testid="badge-temp-substitution"
+                    >
+                      <v-icon icon="mdi-account-clock" size="x-small" class="mr-1"></v-icon>
+                      Suplente temporal hasta {{ formatDisplayDate(sch.active_substitution.end_date) }}
+                    </v-chip>
+                    <div class="text-caption text-amber-darken-4 font-weight-medium">
+                      Suplente: {{ sch.active_substitution.substitute_teacher_name }}
+                    </div>
                   </div>
                 </td>
                 <td>
@@ -521,6 +561,256 @@
               <tr v-if="filteredTeachersList.length === 0">
                 <td colspan="6" class="text-center py-6 text-grey" data-testid="no-teachers-message">
                   No se encontraron docentes registrados
+                </td>
+              </tr>
+            </tbody>
+          </v-table>
+        </div>
+
+        <!-- TAB 6: HISTORIAL DE SUPLENCIAS -->
+        <div v-if="viewTab === 'substitutions'" class="pa-2" data-testid="tab-content-substitutions">
+          <div class="d-flex flex-wrap justify-space-between align-center mb-4 ga-2">
+            <div>
+              <div class="text-h6 font-weight-bold text-primary d-flex align-center">
+                <v-icon icon="mdi-history" class="mr-2"></v-icon>
+                Bitácora e Historial de Suplencias
+              </div>
+              <div class="text-caption text-grey">
+                Registro auditable de reasignaciones y suplencias docentes efectuadas en la institución.
+              </div>
+            </div>
+            <div class="d-flex align-center ga-3">
+              <v-chip color="primary" variant="tonal" class="font-weight-bold" data-testid="chip-total-substitutions">
+                {{ filteredSubstitutions.length }} sustitución(es)
+              </v-chip>
+
+              <!-- Botón Exportar Reporte Excel -->
+              <v-tooltip
+                :disabled="isOnline"
+                text="La exportación no está disponible en modo sin conexión"
+                location="top"
+              >
+                <template #activator="{ props: tooltipProps }">
+                  <span v-bind="tooltipProps" class="d-inline-block">
+                    <v-btn
+                      color="success"
+                      variant="elevated"
+                      prepend-icon="mdi-file-excel"
+                      :loading="isExportingSubstitutions"
+                      :disabled="!isOnline || isExportingSubstitutions"
+                      data-testid="btn-export-substitutions-excel"
+                      @click="exportSubstitutionsExcel"
+                    >
+                      Exportar Reporte Excel
+                    </v-btn>
+                  </span>
+                </template>
+              </v-tooltip>
+            </div>
+          </div>
+
+          <!-- Barra de Filtros Superior -->
+          <v-card variant="outlined" rounded="lg" class="pa-4 mb-4 bg-slate-50" data-testid="filter-bar-substitutions">
+            <v-row dense class="align-center">
+              <!-- Buscador por Texto -->
+              <v-col cols="12" md="4">
+                <v-text-field
+                  v-model="searchSubstitutionText"
+                  label="Buscar en bitácora"
+                  placeholder="Buscar por materia, grupo, docente o motivo..."
+                  prepend-inner-icon="mdi-magnify"
+                  clearable
+                  density="compact"
+                  variant="outlined"
+                  hide-details
+                  data-testid="input-search-substitutions"
+                ></v-text-field>
+              </v-col>
+
+              <!-- Selector de Docente -->
+              <v-col cols="12" sm="6" md="3">
+                <v-autocomplete
+                  v-model="substitutionTeacherFilter"
+                  :items="[{ id: '', name: 'Todos los Docentes' }, ...teachers]"
+                  item-title="name"
+                  item-value="id"
+                  label="Filtrar por Docente"
+                  prepend-inner-icon="mdi-account-tie"
+                  clearable
+                  density="compact"
+                  variant="outlined"
+                  hide-details
+                  data-testid="select-filter-teacher"
+                ></v-autocomplete>
+              </v-col>
+
+              <!-- Filtro de Fechas Desde / Hasta -->
+              <v-col cols="6" sm="3" md="2">
+                <v-text-field
+                  v-model="substitutionDateFrom"
+                  label="Desde"
+                  type="date"
+                  density="compact"
+                  variant="outlined"
+                  hide-details
+                  data-testid="input-date-from"
+                ></v-text-field>
+              </v-col>
+              <v-col cols="6" sm="3" md="2">
+                <v-text-field
+                  v-model="substitutionDateTo"
+                  label="Hasta"
+                  type="date"
+                  density="compact"
+                  variant="outlined"
+                  hide-details
+                  data-testid="input-date-to"
+                ></v-text-field>
+              </v-col>
+
+              <!-- Botón Limpiar Filtros -->
+              <v-col cols="12" md="1" class="d-flex justify-end">
+                <v-btn
+                  variant="outlined"
+                  color="primary"
+                  density="comfortable"
+                  class="text-none font-weight-bold"
+                  prepend-icon="mdi-filter-remove"
+                  data-testid="btn-clear-filters"
+                  title="Limpiar Filtros"
+                  @click="clearSubstitutionFilters"
+                >
+                  Limpiar
+                </v-btn>
+              </v-col>
+            </v-row>
+          </v-card>
+
+          <!-- Tabla de Bitácora -->
+          <v-table class="border rounded" hover data-testid="substitutions-history-table">
+            <thead>
+              <tr class="bg-grey-lighten-4">
+                <th class="font-weight-bold">Fecha Efectiva</th>
+                <th class="font-weight-bold">Materia y Grupo</th>
+                <th class="font-weight-bold">Día / Horario y Aula</th>
+                <th class="font-weight-bold">Docente Titular Anterior → Docente Suplente</th>
+                <th class="font-weight-bold">Motivo / Justificante</th>
+                <th class="font-weight-bold text-right">Fecha de Registro</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr
+                v-for="sub in filteredSubstitutions"
+                :key="sub.id || sub.substitution_id"
+                :data-testid="'row-substitution-' + (sub.id || sub.substitution_id)"
+              >
+                <!-- 1) Fecha Efectiva y Modalidad -->
+                <td>
+                  <v-chip
+                    size="small"
+                    color="primary"
+                    variant="tonal"
+                    class="font-weight-bold"
+                    data-testid="cell-effective-date"
+                  >
+                    <v-icon icon="mdi-calendar" size="x-small" class="mr-1"></v-icon>
+                    {{ sub.effective_date }}
+                  </v-chip>
+                  <div class="mt-1 d-flex flex-wrap align-center ga-1">
+                    <v-chip
+                      v-if="sub.substitution_type === 'temporal'"
+                      size="x-small"
+                      color="amber-darken-3"
+                      variant="flat"
+                      class="font-weight-bold"
+                      data-testid="chip-modality-temporal"
+                    >
+                      Temporal hasta {{ formatDisplayDate(sub.end_date) }}
+                    </v-chip>
+                    <v-chip
+                      v-else
+                      size="x-small"
+                      color="blue-grey"
+                      variant="tonal"
+                      data-testid="chip-modality-definitiva"
+                    >
+                      Definitiva
+                    </v-chip>
+                    <v-chip
+                      size="x-small"
+                      :color="sub.status === 'activa' ? 'success' : (sub.status === 'cancelada' ? 'error' : 'grey')"
+                      variant="tonal"
+                      data-testid="chip-substitution-status"
+                    >
+                      {{ sub.status || 'finalizada' }}
+                    </v-chip>
+                  </div>
+                </td>
+
+                <!-- 2) Materia y Grupo -->
+                <td>
+                  <div class="font-weight-bold text-slate-800" data-testid="cell-subject">{{ sub.subject_name }}</div>
+                  <div class="text-caption text-grey">
+                    <span class="font-weight-medium">{{ sub.subject_code }}</span> &bull; Grupo {{ sub.group_code || 'G1' }}
+                  </div>
+                </td>
+
+                <!-- 3) Día / Horario y Aula -->
+                <td>
+                  <div data-testid="cell-schedule">
+                    <v-icon icon="mdi-clock-outline" size="x-small" class="mr-1"></v-icon>
+                    <strong>{{ sub.day_of_week }}:</strong> {{ sub.start_time }} - {{ sub.end_time }}
+                  </div>
+                  <div class="text-caption text-grey">
+                    <v-icon icon="mdi-door" size="x-small" class="mr-1"></v-icon>
+                    {{ sub.classroom_name || 'Sin aula' }}
+                  </div>
+                </td>
+
+                <!-- 4) Docente Titular Anterior → Docente Suplente -->
+                <td>
+                  <div class="d-flex align-center flex-wrap ga-1" data-testid="cell-teachers-transition">
+                    <span class="text-grey-darken-3 font-weight-medium" data-testid="teacher-original">{{ sub.original_teacher_name }}</span>
+                    <span class="mx-1 text-primary font-weight-bold">→</span>
+                    <v-icon icon="mdi-arrow-right" size="x-small" class="text-primary mr-1"></v-icon>
+                    <span class="text-primary font-weight-bold" data-testid="teacher-substitute">{{ sub.substitute_teacher_name }}</span>
+                  </div>
+                </td>
+
+                <!-- 5) Motivo / Justificante -->
+                <td>
+                  <div class="text-body-2 text-slate-700 font-italic" data-testid="cell-reason">
+                    {{ sub.reason || 'Sin motivo especificado' }}
+                  </div>
+                </td>
+
+                <!-- 6) Fecha de Registro y Acciones -->
+                <td class="text-right">
+                  <div class="text-caption text-grey-darken-1" data-testid="cell-created-at">
+                    {{ formatDateTime(sub.created_at) }}
+                  </div>
+                  <div v-if="sub.substitution_type === 'temporal' && sub.status === 'activa'" class="mt-2">
+                    <v-btn
+                      size="x-small"
+                      color="error"
+                      variant="tonal"
+                      prepend-icon="mdi-backup-restore"
+                      :loading="revertingSubId === (sub.id || sub.substitution_id)"
+                      :disabled="!isOnline"
+                      data-testid="btn-revert-substitution"
+                      @click="handleRevertSubstitution(sub)"
+                    >
+                      Finalizar Suplencia
+                    </v-btn>
+                  </div>
+                </td>
+              </tr>
+
+              <!-- Estado Vacío Amigable -->
+              <tr v-if="filteredSubstitutions.length === 0" data-testid="empty-substitutions-row">
+                <td colspan="6" class="text-center py-6 text-grey-darken-1" data-testid="empty-substitutions-message">
+                  <v-icon icon="mdi-history" class="mr-2" size="small"></v-icon>
+                  No hay sustituciones registradas para los filtros seleccionados
                 </td>
               </tr>
             </tbody>
@@ -1796,8 +2086,239 @@ import api from '../api/client';
 import ExcelScheduleUploader from '../components/ExcelScheduleUploader.vue';
 import ClassroomCatalogView from './ClassroomCatalogView.vue';
 import ScheduleTransferModal from '../components/ScheduleTransferModal.vue';
+import { useNetworkStatus } from '../composables/useNetworkStatus';
 
 const authStore = useAuthStore();
+const { isOnline, syncTrigger } = useNetworkStatus();
+
+const canViewSubstitutions = computed(() => {
+  return !!authStore.isCoordinator;
+});
+
+// Pestaña de Bitácora e Historial de Suplencias
+const substitutions = ref([]);
+const loadingSubstitutions = ref(false);
+const substitutionsError = ref('');
+const searchSubstitutionText = ref('');
+const substitutionTeacherFilter = ref('');
+const substitutionDateFrom = ref('');
+const substitutionDateTo = ref('');
+const isExportingSubstitutions = ref(false);
+
+async function loadSubstitutions() {
+  if (!canViewSubstitutions.value) return;
+  loadingSubstitutions.value = true;
+  substitutionsError.value = '';
+  try {
+    const res = await api.get('/schedules/substitutions', {
+      params: { limit: 100 }
+    });
+    const data = res.data;
+    substitutions.value = Array.isArray(data)
+      ? data
+      : (data?.substitutions || data?.data || data?.items || []);
+  } catch (err) {
+    console.error('Error al cargar historial de sustituciones:', err);
+    substitutionsError.value = err.response?.data?.error || 'No fue posible cargar el historial de sustituciones.';
+  } finally {
+    loadingSubstitutions.value = false;
+  }
+}
+
+function clearSubstitutionFilters() {
+  searchSubstitutionText.value = '';
+  substitutionTeacherFilter.value = '';
+  substitutionDateFrom.value = '';
+  substitutionDateTo.value = '';
+}
+
+async function exportSubstitutionsExcel() {
+  if (!isOnline.value) return;
+  if (isExportingSubstitutions.value) return;
+  isExportingSubstitutions.value = true;
+  try {
+    const params = {};
+    if (searchSubstitutionText.value && searchSubstitutionText.value.trim() !== '') {
+      params.search = searchSubstitutionText.value.trim();
+    }
+    if (substitutionTeacherFilter.value) {
+      params.teacher_id = substitutionTeacherFilter.value;
+    }
+    if (substitutionDateFrom.value) {
+      params.from_date = substitutionDateFrom.value;
+    }
+    if (substitutionDateTo.value) {
+      params.to_date = substitutionDateTo.value;
+    }
+
+    const response = await api.get('/schedules/substitutions/export', {
+      params,
+      responseType: 'blob'
+    });
+
+    const blob = new Blob([response.data], {
+      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    });
+
+    if (typeof window.URL?.createObjectURL === 'function') {
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', 'reporte_sustituciones.xlsx');
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+    }
+  } catch (err) {
+    console.error('Error al exportar reporte de sustituciones:', err);
+    let errorMsg = 'Error al exportar el reporte de sustituciones en Excel';
+    if (err.response?.data instanceof Blob) {
+      try {
+        const text = await err.response.data.text();
+        const json = JSON.parse(text);
+        if (json.error) errorMsg = json.error;
+      } catch {
+        // fallback to default error message
+      }
+    } else if (err.response?.data?.error) {
+      errorMsg = err.response.data.error;
+    } else if (err.message) {
+      errorMsg = err.message;
+    }
+
+    snackbar.value = {
+      show: true,
+      text: errorMsg,
+      color: 'error'
+    };
+  } finally {
+    isExportingSubstitutions.value = false;
+  }
+}
+
+const filteredSubstitutions = computed(() => {
+  let list = substitutions.value || [];
+
+  // Filtro por texto
+  const q = normalizeSearchText(searchSubstitutionText.value);
+  if (q) {
+    list = list.filter(item => {
+      const subjectName = normalizeSearchText(item.subject_name);
+      const subjectCode = normalizeSearchText(item.subject_code);
+      const groupCode = normalizeSearchText(item.group_code);
+      const origName = normalizeSearchText(item.original_teacher_name);
+      const subName = normalizeSearchText(item.substitute_teacher_name);
+      const reason = normalizeSearchText(item.reason);
+      return subjectName.includes(q) ||
+             subjectCode.includes(q) ||
+             groupCode.includes(q) ||
+             origName.includes(q) ||
+             subName.includes(q) ||
+             reason.includes(q);
+    });
+  }
+
+  // Filtro por docente seleccionado (participó como titular anterior o suplente)
+  if (substitutionTeacherFilter.value) {
+    const teacherId = substitutionTeacherFilter.value;
+    list = list.filter(item =>
+      item.original_teacher_id === teacherId || item.substitute_teacher_id === teacherId
+    );
+  }
+
+  // Filtro por fecha Desde
+  if (substitutionDateFrom.value) {
+    list = list.filter(item => {
+      const effDate = String(item.effective_date || '').substring(0, 10);
+      return effDate >= substitutionDateFrom.value;
+    });
+  }
+
+  // Filtro por fecha Hasta
+  if (substitutionDateTo.value) {
+    list = list.filter(item => {
+      const effDate = String(item.effective_date || '').substring(0, 10);
+      return effDate <= substitutionDateTo.value;
+    });
+  }
+
+  return list;
+});
+
+function formatDateTime(val) {
+  if (!val) return '—';
+  try {
+    const d = new Date(val);
+    if (isNaN(d.getTime())) return String(val);
+    return d.toLocaleString('es-MX', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+  } catch {
+    return String(val);
+  }
+}
+
+function formatDisplayDate(val) {
+  if (!val) return '';
+  const dateStr = typeof val === 'string' ? val.split('T')[0] : '';
+  if (dateStr && dateStr.includes('-')) {
+    const [y, m, d] = dateStr.split('-');
+    return `${d}/${m}/${y}`;
+  }
+  try {
+    const d = new Date(val);
+    if (isNaN(d.getTime())) return String(val);
+    const day = String(d.getDate()).padStart(2, '0');
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const year = d.getFullYear();
+    return `${day}/${month}/${year}`;
+  } catch {
+    return String(val);
+  }
+}
+
+const revertingSubId = ref(null);
+
+async function handleRevertSubstitution(sub) {
+  if (!isOnline.value) return;
+  const subId = sub.id || sub.substitution_id;
+  if (!subId) return;
+
+  revertingSubId.value = subId;
+  try {
+    const res = await api.post(`/schedules/substitutions/${subId}/revert`);
+    snackbar.value = {
+      show: true,
+      text: res.data?.message || 'Suplencia temporal finalizada exitosamente',
+      color: 'success'
+    };
+    await Promise.all([loadData(), loadSubstitutions()]);
+  } catch (err) {
+    console.error('Error al finalizar suplencia:', err);
+    snackbar.value = {
+      show: true,
+      text: err.response?.data?.error || err.response?.data?.message || err.message || 'Error al finalizar la suplencia temporal',
+      color: 'error'
+    };
+  } finally {
+    revertingSubId.value = null;
+  }
+}
+
+// Resincronización al recuperar conectividad
+watch(syncTrigger, async () => {
+  if (isOnline.value) {
+    await Promise.all([
+      loadData(),
+      loadSubstitutions()
+    ]);
+  }
+});
 
 const emit = defineEmits([
   'teacher-selected',
@@ -2201,13 +2722,16 @@ function openTransferModal(schedule) {
   isTransferModalOpen.value = true;
 }
 
-function handleTransferSuccess(payload) {
+async function handleTransferSuccess(payload) {
   snackbar.value = {
     show: true,
     text: payload?.data?.message || '¡Horario reasignado y suplencia registrada exitosamente!',
     color: 'success'
   };
-  loadData();
+  await Promise.all([
+    loadData(),
+    loadSubstitutions()
+  ]);
 }
 
 const viewTab = ref('grid');
@@ -2614,7 +3138,10 @@ const snackbar = ref({
 });
 
 onMounted(async () => {
-  await loadData();
+  await Promise.all([
+    loadData(),
+    loadSubstitutions()
+  ]);
 });
 
 async function loadData() {

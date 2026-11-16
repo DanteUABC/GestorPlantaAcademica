@@ -209,7 +209,7 @@ async function createSchedule(req, res) {
 // List all schedules for the Coordinator's institution
 async function getCoordinatorSchedules(req, res) {
   try {
-    const schedules = await query.all(
+    const rawSchedules = await query.all(
       `SELECT
          s.id,
          s.day_of_week,
@@ -229,11 +229,32 @@ async function getCoordinatorSchedules(req, res) {
          cr.id as classroom_id,
          cr.name as classroom_name,
          cr.building as classroom_building,
-         cr.type as classroom_type
+         cr.type as classroom_type,
+         ss_act.id as sub_id,
+         ss_act.substitute_teacher_id,
+         ss_act.substitute_teacher_name,
+         ss_act.original_teacher_id,
+         TO_CHAR(ss_act.effective_date, 'YYYY-MM-DD') as sub_effective_date,
+         TO_CHAR(ss_act.end_date, 'YYYY-MM-DD') as sub_end_date,
+         ss_act.status as sub_status
        FROM schedules s
        JOIN subjects sub ON s.subject_id = sub.id
        JOIN users t ON s.teacher_id = t.id
        JOIN classrooms cr ON s.classroom_id = cr.id
+       LEFT JOIN LATERAL (
+         SELECT ss.id, ss.substitute_teacher_id, ss.original_teacher_id, ss.effective_date, ss.end_date, ss.status,
+                TRIM(CONCAT(COALESCE(u.nombre, ''), ' ', COALESCE(u.apellidos, ''))) AS substitute_teacher_name
+         FROM schedule_substitutions ss
+         JOIN users u ON ss.substitute_teacher_id = u.id
+         WHERE ss.schedule_id = s.id
+           AND ss.tenant_id = s.tenant_id
+           AND ss.substitution_type = 'temporal'
+           AND ss.status = 'activa'
+           AND CURRENT_DATE >= ss.effective_date
+           AND CURRENT_DATE <= ss.end_date
+         ORDER BY ss.created_at DESC
+         LIMIT 1
+       ) ss_act ON true
        WHERE s.tenant_id = ?
        ORDER BY
          CASE s.day_of_week
@@ -248,6 +269,29 @@ async function getCoordinatorSchedules(req, res) {
          s.start_time ASC`,
       [req.tenant_id]
     );
+
+    const schedules = (rawSchedules || []).map((row) => {
+      const item = { ...row };
+      if (row.sub_id) {
+        item.active_substitution = {
+          id: row.sub_id,
+          substitute_teacher_id: row.substitute_teacher_id,
+          substitute_teacher_name: row.substitute_teacher_name,
+          original_teacher_id: row.original_teacher_id || row.teacher_id,
+          original_teacher_name: row.teacher_name,
+          effective_date: row.sub_effective_date,
+          end_date: row.sub_end_date,
+          status: row.sub_status
+        };
+      } else {
+        item.active_substitution = null;
+      }
+      delete item.sub_id;
+      delete item.sub_effective_date;
+      delete item.sub_end_date;
+      delete item.sub_status;
+      return item;
+    });
 
     res.json(schedules);
   } catch (err) {
@@ -277,7 +321,7 @@ async function deleteSchedule(req, res) {
 
 async function getTeacherSchedules(req, res) {
   try {
-    const schedules = await query.all(
+    const rawSchedules = await query.all(
       `SELECT
          s.id,
          s.day_of_week,
@@ -291,11 +335,36 @@ async function getTeacherSchedules(req, res) {
          sub.credits as subject_credits,
          cr.name as classroom_name,
          cr.building as classroom_building,
-         cr.type as classroom_type
+         cr.type as classroom_type,
+         t.id as teacher_id,
+         TRIM(CONCAT(COALESCE(t.nombre, ''), ' ', COALESCE(t.apellidos, ''))) as teacher_name,
+         ss_act.id as sub_id,
+         ss_act.substitute_teacher_id,
+         ss_act.substitute_teacher_name,
+         ss_act.original_teacher_id,
+         TO_CHAR(ss_act.effective_date, 'YYYY-MM-DD') as sub_effective_date,
+         TO_CHAR(ss_act.end_date, 'YYYY-MM-DD') as sub_end_date,
+         ss_act.status as sub_status
        FROM schedules s
        JOIN subjects sub ON s.subject_id = sub.id
+       JOIN users t ON s.teacher_id = t.id
        JOIN classrooms cr ON s.classroom_id = cr.id
-       WHERE s.tenant_id = ? AND s.teacher_id = ?
+       LEFT JOIN LATERAL (
+         SELECT ss.id, ss.substitute_teacher_id, ss.original_teacher_id, ss.effective_date, ss.end_date, ss.status,
+                TRIM(CONCAT(COALESCE(u.nombre, ''), ' ', COALESCE(u.apellidos, ''))) AS substitute_teacher_name
+         FROM schedule_substitutions ss
+         JOIN users u ON ss.substitute_teacher_id = u.id
+         WHERE ss.schedule_id = s.id
+           AND ss.tenant_id = s.tenant_id
+           AND ss.substitution_type = 'temporal'
+           AND ss.status = 'activa'
+           AND CURRENT_DATE >= ss.effective_date
+           AND CURRENT_DATE <= ss.end_date
+         ORDER BY ss.created_at DESC
+         LIMIT 1
+       ) ss_act ON true
+       WHERE s.tenant_id = ?
+         AND (s.teacher_id = ? OR ss_act.substitute_teacher_id = ?)
        ORDER BY
          CASE s.day_of_week
            WHEN 'Lunes' THEN 1
@@ -307,8 +376,31 @@ async function getTeacherSchedules(req, res) {
            ELSE 7
          END,
          s.start_time ASC`,
-      [req.tenant_id, req.user.id]
+      [req.tenant_id, req.user.id, req.user.id]
     );
+
+    const schedules = (rawSchedules || []).map((row) => {
+      const item = { ...row };
+      if (row.sub_id) {
+        item.active_substitution = {
+          id: row.sub_id,
+          substitute_teacher_id: row.substitute_teacher_id,
+          substitute_teacher_name: row.substitute_teacher_name,
+          original_teacher_id: row.original_teacher_id || row.teacher_id,
+          original_teacher_name: row.teacher_name,
+          effective_date: row.sub_effective_date,
+          end_date: row.sub_end_date,
+          status: row.sub_status
+        };
+      } else {
+        item.active_substitution = null;
+      }
+      delete item.sub_id;
+      delete item.sub_effective_date;
+      delete item.sub_end_date;
+      delete item.sub_status;
+      return item;
+    });
 
     res.json(schedules);
   } catch (err) {
@@ -952,8 +1044,14 @@ async function transferSchedule(req, res) {
   let client;
   try {
     const { id } = req.params;
-    const tenantId = req.tenant_id;
-    const { substitute_teacher_id, reason, effective_date } = req.body;
+    const tenantId = req.tenant_id || req.user?.tenant_id;
+    const {
+      substitute_teacher_id,
+      reason,
+      effective_date,
+      substitution_type = 'definitiva',
+      end_date
+    } = req.body;
 
     if (!tenantId) {
       return res.status(403).json({ error: 'No se pudo determinar la institución (tenant)' });
@@ -961,6 +1059,24 @@ async function transferSchedule(req, res) {
 
     if (!substitute_teacher_id) {
       return res.status(400).json({ error: 'El docente suplente (substitute_teacher_id) es obligatorio' });
+    }
+
+    const type = String(substitution_type || 'definitiva').trim().toLowerCase();
+    if (!['definitiva', 'temporal'].includes(type)) {
+      return res.status(400).json({ error: 'Tipo de sustitución no válido. Debe ser "definitiva" o "temporal".' });
+    }
+
+    const effectiveDateVal = (effective_date || new Date().toISOString().split('T')[0]).trim();
+    let endDateVal = null;
+
+    if (type === 'temporal') {
+      if (!end_date || String(end_date).trim() === '') {
+        return res.status(400).json({ error: 'La fecha de fin (end_date) es obligatoria para suplencias temporales.' });
+      }
+      endDateVal = String(end_date).trim();
+      if (endDateVal < effectiveDateVal) {
+        return res.status(400).json({ error: 'La fecha de fin (end_date) debe ser igual o posterior a la fecha efectiva.' });
+      }
     }
 
     // Iniciar transacción SQL para reasignación y trazabilidad atómica
@@ -1029,7 +1145,7 @@ async function transferSchedule(req, res) {
       end_time: schedule.end_time
     });
 
-    // 3. Verificar de nuevo que el substitute_teacher_id no tenga empalmes de horario
+    // 3. Verificar que el substitute_teacher_id no tenga empalmes de horario con clases base
     const conflictRes = await client.query(
       `SELECT s.id, s.start_time, s.end_time, sub.name as subject_name
        FROM schedules s
@@ -1047,20 +1163,53 @@ async function transferSchedule(req, res) {
     if (conflictRes.rows.length > 0) {
       await client.query('ROLLBACK');
       const conflict = conflictRes.rows[0];
-      return res.status(400).json({
+      const statusCode = type === 'temporal' ? 409 : 400;
+      return res.status(statusCode).json({
         error: `Empalme de horario: el docente ${substituteTeacher.name} ya tiene clase el ${schedule.day_of_week} de ${conflict.start_time} a ${conflict.end_time} (${conflict.subject_name})`,
         conflict
       });
     }
 
+    // 3.5. Si es temporal, validar que el substitute_teacher_id no tenga empalmes con otras suplencias temporales activas en ese rango de fechas
+    if (type === 'temporal') {
+      const tempConflictRes = await client.query(
+        `SELECT ss.id, ss.effective_date, ss.end_date, sch.start_time, sch.end_time, sub.name as subject_name
+         FROM schedule_substitutions ss
+         JOIN schedules sch ON ss.schedule_id = sch.id
+         JOIN subjects sub ON sch.subject_id = sub.id
+         WHERE ss.tenant_id = $1
+           AND ss.status = 'activa'
+           AND ss.substitution_type = 'temporal'
+           AND ss.substitute_teacher_id = $2
+           AND sch.day_of_week = $3
+           AND sch.start_time < $4
+           AND sch.end_time > $5
+           AND ss.schedule_id != $6
+           AND ss.effective_date <= $7::date
+           AND ss.end_date >= $8::date
+         LIMIT 1`,
+        [tenantId, substitute_teacher_id, schedule.day_of_week, schedule.end_time, schedule.start_time, schedule.id, endDateVal, effectiveDateVal]
+      );
+
+      if (tempConflictRes.rows.length > 0) {
+        await client.query('ROLLBACK');
+        const conflict = tempConflictRes.rows[0];
+        return res.status(409).json({
+          error: `Empalme de suplencia temporal: el docente ${substituteTeacher.name} ya tiene una suplencia temporal activa el ${schedule.day_of_week} de ${conflict.start_time} a ${conflict.end_time} (${conflict.subject_name})`,
+          conflict
+        });
+      }
+    }
+
     // 4. Registrar en schedule_substitutions para trazabilidad
     const substitutionId = 'subst-' + crypto.randomUUID();
-    const effectiveDateVal = effective_date || new Date().toISOString().split('T')[0];
+    const statusVal = type === 'temporal' ? 'activa' : 'finalizada';
 
     await client.query(
       `INSERT INTO schedule_substitutions (
-         id, tenant_id, schedule_id, original_teacher_id, substitute_teacher_id, reason, effective_date, created_at
-       ) VALUES ($1, $2, $3, $4, $5, $6, $7, CURRENT_TIMESTAMP)`,
+         id, tenant_id, schedule_id, original_teacher_id, substitute_teacher_id, reason, effective_date,
+         substitution_type, end_date, status, created_at
+       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, CURRENT_TIMESTAMP)`,
       [
         substitutionId,
         tenantId,
@@ -1068,28 +1217,38 @@ async function transferSchedule(req, res) {
         schedule.teacher_id,
         substitute_teacher_id,
         reason || null,
-        effectiveDateVal
+        effectiveDateVal,
+        type,
+        endDateVal,
+        statusVal
       ]
     );
 
-    // 5. Actualizar schedules con el nuevo docente asignado
-    await client.query(
-      `UPDATE schedules
-       SET teacher_id = $1
-       WHERE id = $2 AND tenant_id = $3`,
-      [substitute_teacher_id, schedule.id, tenantId]
-    );
+    // 5. Solo actualizar schedules.teacher_id si la sustitución es definitiva
+    if (type === 'definitiva') {
+      await client.query(
+        `UPDATE schedules
+         SET teacher_id = $1
+         WHERE id = $2 AND tenant_id = $3`,
+        [substitute_teacher_id, schedule.id, tenantId]
+      );
+    }
 
     await client.query('COMMIT');
 
     return res.status(200).json({
-      message: 'Horario transferido y suplencia registrada exitosamente',
+      message: type === 'temporal'
+        ? 'Suplencia temporal registrada exitosamente'
+        : 'Horario transferido y suplencia registrada exitosamente',
       schedule_id: schedule.id,
       substitution_id: substitutionId,
       original_teacher_id: schedule.teacher_id,
       substitute_teacher_id,
-      reason: reason || null,
-      effective_date: effectiveDateVal
+      substitution_type: type,
+      effective_date: effectiveDateVal,
+      end_date: endDateVal,
+      status: statusVal,
+      reason: reason || null
     });
   } catch (err) {
     if (client) {
@@ -1107,6 +1266,107 @@ async function transferSchedule(req, res) {
     }
     console.error('Error al transferir horario:', err);
     return res.status(500).json({ error: 'Error interno al transferir horario', details: err.message });
+  } finally {
+    if (client) {
+      client.release();
+    }
+  }
+}
+
+// -------------------------------------------------------------
+// REVERSIÓN / FINALIZACIÓN MANUAL DE SUPLENCIAS TEMPORALES
+// -------------------------------------------------------------
+
+async function revertSubstitution(req, res) {
+  let client;
+  try {
+    const tenantId = req.user?.tenant_id || req.tenant_id;
+    if (!tenantId) {
+      return res.status(403).json({ error: 'No se pudo determinar la institución (tenant)' });
+    }
+
+    const { substId } = req.params;
+    if (!substId) {
+      return res.status(400).json({ error: 'ID de sustitución no proporcionado' });
+    }
+
+    client = await pool.connect();
+    await client.query('BEGIN');
+
+    // 1. Obtener la sustitución y bloquear la fila
+    const substRes = await client.query(
+      `SELECT ss.*, sch.day_of_week, sch.start_time, sch.end_time, sch.subject_id
+       FROM schedule_substitutions ss
+       JOIN schedules sch ON ss.schedule_id = sch.id
+       WHERE ss.id = $1 AND ss.tenant_id = $2
+       FOR UPDATE OF ss`,
+      [substId, tenantId]
+    );
+
+    if (substRes.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Sustitución no encontrada en esta institución' });
+    }
+
+    const substitution = substRes.rows[0];
+
+    if (substitution.substitution_type !== 'temporal') {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'Solo las suplencias de tipo temporal pueden ser revertidas o finalizadas manualmente' });
+    }
+
+    if (substitution.status !== 'activa') {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: `La suplencia no está activa (estado actual: ${substitution.status})` });
+    }
+
+    // 2. Validar que el titular original no tenga empalmes con otras clases
+    const conflictRes = await client.query(
+      `SELECT s.id, s.start_time, s.end_time, sub.name as subject_name
+       FROM schedules s
+       JOIN subjects sub ON s.subject_id = sub.id
+       WHERE s.tenant_id = $1
+         AND s.teacher_id = $2
+         AND s.day_of_week = $3
+         AND s.start_time < $4
+         AND s.end_time > $5
+         AND s.id != $6
+       LIMIT 1`,
+      [tenantId, substitution.original_teacher_id, substitution.day_of_week, substitution.end_time, substitution.start_time, substitution.schedule_id]
+    );
+
+    if (conflictRes.rows.length > 0) {
+      await client.query('ROLLBACK');
+      const conflict = conflictRes.rows[0];
+      return res.status(409).json({
+        error: `Conflicto de horario: el titular original tiene un empalme el ${substitution.day_of_week} de ${conflict.start_time} a ${conflict.end_time} (${conflict.subject_name})`,
+        conflict
+      });
+    }
+
+    // 3. Finalizar la suplencia
+    const updateRes = await client.query(
+      `UPDATE schedule_substitutions
+       SET status = 'finalizada'
+       WHERE id = $1 AND tenant_id = $2
+       RETURNING *`,
+      [substId, tenantId]
+    );
+
+    await client.query('COMMIT');
+
+    return res.status(200).json({
+      message: 'Suplencia temporal finalizada exitosamente',
+      substitution: updateRes.rows[0]
+    });
+  } catch (err) {
+    if (client) {
+      try {
+        await client.query('ROLLBACK');
+      } catch (_) {}
+    }
+    console.error('Error al revertir suplencia temporal:', err);
+    return res.status(500).json({ error: 'Error interno al revertir suplencia', details: err.message });
   } finally {
     if (client) {
       client.release();
@@ -1211,6 +1471,9 @@ async function getSubstitutionsHistory(req, res) {
         u_sub.identificador AS substitute_teacher_identifier,
         ss.reason,
         TO_CHAR(ss.effective_date, 'YYYY-MM-DD') AS effective_date,
+        COALESCE(ss.substitution_type, 'definitiva') AS substitution_type,
+        TO_CHAR(ss.end_date, 'YYYY-MM-DD') AS end_date,
+        COALESCE(ss.status, 'activa') AS status,
         ss.created_at,
         sch.day_of_week,
         sch.start_time,
@@ -1265,6 +1528,175 @@ async function getSubstitutionsHistory(req, res) {
   }
 }
 
+// -------------------------------------------------------------
+// EXPORTACIÓN DE REPORTE DE HISTORIAL DE SUSTITUCIONES (.XLSX)
+// -------------------------------------------------------------
+
+async function exportSubstitutionsExcel(req, res) {
+  try {
+    const tenantId = req.user?.tenant_id || req.tenant_id;
+
+    if (!tenantId) {
+      return res.status(403).json({ error: 'No se pudo determinar la institución (tenant)' });
+    }
+
+    const {
+      teacher_id,
+      from_date,
+      to_date,
+      start_date,
+      end_date,
+      search
+    } = req.query;
+
+    const filterConditions = ['ss.tenant_id = $1'];
+    const filterParams = [tenantId];
+    let paramIndex = 2;
+
+    if (teacher_id && String(teacher_id).trim() !== '') {
+      filterConditions.push(`(ss.original_teacher_id = $${paramIndex} OR ss.substitute_teacher_id = $${paramIndex})`);
+      filterParams.push(String(teacher_id).trim());
+      paramIndex += 1;
+    }
+
+    const effectiveFrom = (from_date || start_date || '').trim();
+    const effectiveTo = (to_date || end_date || '').trim();
+
+    if (effectiveFrom && effectiveTo) {
+      filterConditions.push(`ss.effective_date BETWEEN $${paramIndex}::date AND $${paramIndex + 1}::date`);
+      filterParams.push(effectiveFrom, effectiveTo);
+      paramIndex += 2;
+    } else if (effectiveFrom) {
+      filterConditions.push(`ss.effective_date >= $${paramIndex}::date`);
+      filterParams.push(effectiveFrom);
+      paramIndex += 1;
+    } else if (effectiveTo) {
+      filterConditions.push(`ss.effective_date <= $${paramIndex}::date`);
+      filterParams.push(effectiveTo);
+      paramIndex += 1;
+    }
+
+    if (search && String(search).trim() !== '') {
+      const searchPattern = `%${String(search).trim()}%`;
+      filterConditions.push(
+        `(
+          sub.name ILIKE $${paramIndex}
+          OR sub.code ILIKE $${paramIndex}
+          OR COALESCE(ss.reason, '') ILIKE $${paramIndex}
+          OR TRIM(CONCAT(COALESCE(u_orig.nombre, ''), ' ', COALESCE(u_orig.apellidos, ''))) ILIKE $${paramIndex}
+          OR TRIM(CONCAT(COALESCE(u_sub.nombre, ''), ' ', COALESCE(u_sub.apellidos, ''))) ILIKE $${paramIndex}
+        )`
+      );
+      filterParams.push(searchPattern);
+      paramIndex += 1;
+    }
+
+    const whereClause = filterConditions.join(' AND ');
+
+    const querySql = `
+      SELECT
+        TO_CHAR(ss.effective_date, 'YYYY-MM-DD') AS effective_date,
+        sub.code AS subject_code,
+        sub.name AS subject_name,
+        sch.group_code,
+        sch.day_of_week,
+        sch.start_time,
+        sch.end_time,
+        cls.name AS classroom_name,
+        TRIM(CONCAT(COALESCE(u_orig.nombre, ''), ' ', COALESCE(u_orig.apellidos, ''))) AS original_teacher_name,
+        COALESCE(u_orig.identificador, '') AS original_teacher_identifier,
+        TRIM(CONCAT(COALESCE(u_sub.nombre, ''), ' ', COALESCE(u_sub.apellidos, ''))) AS substitute_teacher_name,
+        COALESCE(u_sub.identificador, '') AS substitute_teacher_identifier,
+        COALESCE(ss.reason, '') AS reason,
+        COALESCE(ss.substitution_type, 'definitiva') AS substitution_type,
+        TO_CHAR(ss.end_date, 'YYYY-MM-DD') AS end_date,
+        COALESCE(ss.status, 'activa') AS status,
+        COALESCE(TO_CHAR(ss.created_at, 'YYYY-MM-DD HH24:MI:SS'), '') AS created_at_formatted,
+        ss.created_at
+      FROM schedule_substitutions ss
+      JOIN schedules sch ON ss.schedule_id = sch.id
+      JOIN subjects sub ON sch.subject_id = sub.id
+      JOIN classrooms cls ON sch.classroom_id = cls.id
+      JOIN users u_orig ON ss.original_teacher_id = u_orig.id
+      JOIN users u_sub ON ss.substitute_teacher_id = u_sub.id
+      WHERE ${whereClause}
+      ORDER BY ss.created_at DESC, ss.effective_date DESC
+    `;
+
+    const result = await pool.query(querySql, filterParams);
+    const rows = result?.rows || [];
+
+    const HEADERS = [
+      'Fecha Efectiva',
+      'Clave',
+      'Materia',
+      'Grupo',
+      'Día',
+      'Horario',
+      'Aula',
+      'Docente Original',
+      'Nómina Original',
+      'Docente Suplente',
+      'Nómina Suplente',
+      'Motivo',
+      'Fecha de Registro'
+    ];
+
+    const data = rows.map((row) => ({
+      'Fecha Efectiva': row.effective_date || '',
+      'Clave': row.subject_code || '',
+      'Materia': row.subject_name || '',
+      'Grupo': row.group_code || '',
+      'Día': row.day_of_week || '',
+      'Horario': row.start_time && row.end_time ? `${row.start_time} - ${row.end_time}` : (row.start_time || row.end_time || ''),
+      'Aula': row.classroom_name || '',
+      'Docente Original': row.original_teacher_name || '',
+      'Nómina Original': row.original_teacher_identifier || '',
+      'Docente Suplente': row.substitute_teacher_name || '',
+      'Nómina Suplente': row.substitute_teacher_identifier || '',
+      'Motivo': row.substitution_type === 'temporal' && row.end_date
+        ? `${row.reason ? row.reason + ' ' : ''}[Temporal hasta ${row.end_date}]`
+        : (row.reason || ''),
+      'Fecha de Registro': row.created_at_formatted || (row.created_at ? (row.created_at instanceof Date ? row.created_at.toISOString().replace('T', ' ').substring(0, 19) : String(row.created_at).replace('T', ' ').substring(0, 19)) : '')
+    }));
+
+    let worksheet;
+    if (data.length === 0) {
+      worksheet = xlsx.utils.aoa_to_sheet([HEADERS]);
+    } else {
+      worksheet = xlsx.utils.json_to_sheet(data, { header: HEADERS });
+    }
+
+    worksheet['!cols'] = [
+      { wch: 15 }, // Fecha Efectiva
+      { wch: 12 }, // Clave
+      { wch: 30 }, // Materia
+      { wch: 10 }, // Grupo
+      { wch: 12 }, // Día
+      { wch: 16 }, // Horario
+      { wch: 20 }, // Aula
+      { wch: 30 }, // Docente Original
+      { wch: 18 }, // Nómina Original
+      { wch: 30 }, // Docente Suplente
+      { wch: 18 }, // Nómina Suplente
+      { wch: 35 }, // Motivo
+      { wch: 20 }  // Fecha de Registro
+    ];
+
+    const workbook = xlsx.utils.book_new();
+    xlsx.utils.book_append_sheet(workbook, worksheet, 'Sustituciones');
+
+    const buffer = xlsx.write(workbook, { type: 'buffer', bookType: 'xlsx' });
+
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', 'attachment; filename="reporte_sustituciones.xlsx"');
+    return res.status(200).send(buffer);
+  } catch (error) {
+    console.error('Error al exportar reporte de sustituciones:', error);
+    return res.status(500).json({ error: 'Error al exportar reporte de sustituciones', details: error.message });
+  }
+}
+
 module.exports = {
   createSchedule,
   getCoordinatorSchedules,
@@ -1273,18 +1705,22 @@ module.exports = {
   uploadExcelMiddleware,
   uploadExcelSchedule,
   exportSchedules,
+  exportSubstitutionsExcel,
   parseExcelBuffer,
   mapExcelRows,
   parseExcelTime,
   normalizeKey,
   getAvailableSubstitutes,
   transferSchedule,
+  revertSubstitution,
   getSubstitutionsHistory,
   getSubstitutions: getSubstitutionsHistory
 };
 
 module.exports.exportSchedules = exportSchedules;
+module.exports.exportSubstitutionsExcel = exportSubstitutionsExcel;
 module.exports.getAvailableSubstitutes = getAvailableSubstitutes;
 module.exports.transferSchedule = transferSchedule;
+module.exports.revertSubstitution = revertSubstitution;
 module.exports.getSubstitutionsHistory = getSubstitutionsHistory;
 module.exports.getSubstitutions = getSubstitutionsHistory;
