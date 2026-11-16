@@ -123,6 +123,7 @@
             color="primary"
             prepend-icon="mdi-printer"
             class="text-none font-weight-bold"
+            data-testid="btn-export-schedule-pdf"
             @click="imprimirHorario"
           >
             Imprimir Horario
@@ -1796,6 +1797,7 @@ import api from '../api/client';
 import ExcelScheduleUploader from '../components/ExcelScheduleUploader.vue';
 import ClassroomCatalogView from './ClassroomCatalogView.vue';
 import ScheduleTransferModal from '../components/ScheduleTransferModal.vue';
+import { generateOfficialSchedulePdf } from '../utils/schedulePdfGenerator';
 
 const authStore = useAuthStore();
 
@@ -2351,9 +2353,12 @@ const filteredSchedules = computed(() => {
 });
 
 function imprimirHorario() {
-  if (typeof window !== 'undefined' && typeof window.print === 'function') {
-    window.print();
-  }
+  return generateOfficialSchedulePdf({
+    schedules: filteredSchedules.value,
+    tenantName: authStore.tenantName,
+    teacherName: selectedTeacherName.value,
+    period: '2026-2'
+  });
 }
 
 const timeSlots = [
