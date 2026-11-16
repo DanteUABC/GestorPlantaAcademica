@@ -106,6 +106,36 @@
       <router-view />
     </v-main>
 
+    <!-- Notificación persistente en modo sin conexión -->
+    <v-snackbar
+      :model-value="!isOnline"
+      color="grey-darken-3"
+      :timeout="-1"
+      location="top"
+      elevation="4"
+      data-testid="banner-offline"
+    >
+      <div class="d-flex align-center">
+        <v-icon icon="mdi-wifi-off" class="mr-2"></v-icon>
+        <span>Modo sin conexión: Estás visualizando los horarios guardados en tu dispositivo.</span>
+      </div>
+    </v-snackbar>
+
+    <!-- Notificación de reconexión y sincronización -->
+    <v-snackbar
+      v-model="showReconnectedBanner"
+      color="success"
+      :timeout="4000"
+      location="top"
+      elevation="4"
+      data-testid="banner-reconnected"
+    >
+      <div class="d-flex align-center">
+        <v-icon icon="mdi-wifi-check" class="mr-2"></v-icon>
+        <span>Conexión reestablecida. Datos sincronizados.</span>
+      </div>
+    </v-snackbar>
+
     <!-- Footer -->
     <v-footer border class="text-center d-flex justify-center text-caption text-grey-darken-1 py-1">
       <span>Gestor de Planta Académica SaaS Multi-tenant &copy; 2026 — Modelo "Shared Database, Shared Schema"</span>
@@ -116,9 +146,11 @@
 <script setup>
 import { useAuthStore } from './stores/authStore';
 import { useRouter } from 'vue-router';
+import { useNetworkStatus } from './composables/useNetworkStatus';
 
 const authStore = useAuthStore();
 const router = useRouter();
+const { isOnline, showReconnectedBanner } = useNetworkStatus();
 
 function getRoleColor(role) {
   switch (role) {

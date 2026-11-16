@@ -162,10 +162,16 @@
               class="text-none font-weight-bold"
               prepend-icon="mdi-check"
               :loading="submitting"
-              :disabled="!selectedSubstituteId || submitting"
+              :disabled="!isOnline || !selectedSubstituteId || submitting"
               data-testid="btn-confirm-transfer"
             >
               Confirmar Reasignación
+              <v-tooltip
+                activator="parent"
+                location="top"
+                :disabled="isOnline"
+                text="Se requiere conexión a internet para persistir cambios."
+              />
             </v-btn>
           </div>
         </v-form>
@@ -177,6 +183,9 @@
 <script setup>
 import { ref, computed, watch } from 'vue';
 import api from '../api/client';
+import { useNetworkStatus } from '../composables/useNetworkStatus';
+
+const { isOnline } = useNetworkStatus();
 
 const props = defineProps({
   modelValue: {
@@ -253,6 +262,7 @@ watch(
 );
 
 async function submitTransfer() {
+  if (!isOnline.value) return;
   if (!props.schedule?.id || !selectedSubstituteId.value) return;
 
   submitting.value = true;

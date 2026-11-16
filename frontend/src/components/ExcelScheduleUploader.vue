@@ -189,9 +189,16 @@
           class="text-none font-weight-bold"
           data-testid="force-upload-button"
           :loading="loading"
+          :disabled="!isOnline || loading"
           @click="forceUpload"
         >
           Sobrescribir Base de Datos
+          <v-tooltip
+            activator="parent"
+            location="top"
+            :disabled="isOnline"
+            text="Se requiere conexión a internet para persistir cambios."
+          />
         </v-btn>
       </div>
     </v-card>
@@ -204,11 +211,17 @@
         prepend-icon="mdi-upload"
         class="text-none font-weight-bold elevation-1"
         data-testid="upload-button"
-        :disabled="!selectedFile || loading"
+        :disabled="!isOnline || !selectedFile || loading"
         :loading="loading"
         @click="handleUpload"
       >
         Cargar Archivo
+        <v-tooltip
+          activator="parent"
+          location="top"
+          :disabled="isOnline"
+          text="Se requiere conexión a internet para persistir cambios."
+        />
       </v-btn>
     </div>
   </v-card>
@@ -217,6 +230,9 @@
 <script setup>
 import { ref, computed } from 'vue';
 import api from '../api/client';
+import { useNetworkStatus } from '../composables/useNetworkStatus';
+
+const { isOnline } = useNetworkStatus();
 
 const emit = defineEmits(['upload-success', 'upload-error']);
 
@@ -299,6 +315,7 @@ function clearFile() {
 }
 
 async function handleUpload() {
+  if (!isOnline.value) return;
   if (!selectedFile.value) return;
 
   loading.value = true;
@@ -336,6 +353,7 @@ async function handleUpload() {
 }
 
 async function forceUpload() {
+  if (!isOnline.value) return;
   if (!selectedFile.value) return;
 
   loading.value = true;
