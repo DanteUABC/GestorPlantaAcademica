@@ -120,6 +120,7 @@ app.post('/api/schedules', requireRole(['Coordinador', 'Administrador']), schedu
 app.get('/api/schedules/coordinator', requireRole(['Coordinador', 'Administrador']), scheduleController.getCoordinatorSchedules);
 app.get('/api/schedules/substitutions', authenticateJWT, requireRole(['Coordinador', 'Administrador']), scheduleController.getSubstitutionsHistory);
 app.get('/api/schedules/substitutions/export', authenticateJWT, requireRole(['Coordinador', 'Administrador']), scheduleController.exportSubstitutionsExcel);
+app.post('/api/schedules/substitutions/:substId/revert', authenticateJWT, requireRole(['Coordinador', 'Administrador']), scheduleController.revertSubstitution);
 app.get('/api/schedules/:id/available-substitutes', requireRole(['Coordinador', 'Administrador']), scheduleController.getAvailableSubstitutes);
 app.post('/api/schedules/:id/transfer', requireRole(['Coordinador', 'Administrador']), scheduleController.transferSchedule);
 app.delete('/api/schedules/:id', requireRole(['Coordinador', 'Administrador']), scheduleController.deleteSchedule);

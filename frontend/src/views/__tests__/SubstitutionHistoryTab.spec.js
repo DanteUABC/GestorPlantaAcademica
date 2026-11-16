@@ -77,7 +77,9 @@ const mockSubstitutions = [
     subject_name: 'Cálculo Diferencial',
     subject_code: 'MAT-101',
     classroom_name: 'Aula 201',
-    classroom_building: 'Edificio A'
+    classroom_building: 'Edificio A',
+    substitution_type: 'definitiva',
+    status: 'finalizada'
   },
   {
     id: 'sub-2',
@@ -93,6 +95,9 @@ const mockSubstitutions = [
     substitute_teacher_identifier: 'DOC-101',
     reason: 'Incapacidad médica certificada',
     effective_date: '2026-12-05',
+    end_date: '2026-12-15',
+    substitution_type: 'temporal',
+    status: 'activa',
     created_at: '2026-11-16T14:00:00Z',
     day_of_week: 'Miércoles',
     start_time: '12:00',
@@ -516,6 +521,51 @@ describe('Pestaña de Bitácora e Historial de Suplencias en CoordinatorView.vue
       expect(wrapper.vm.snackbar.show).toBe(true);
       expect(wrapper.vm.snackbar.text).toBe('Fallo al generar el archivo Excel en el servidor');
       expect(wrapper.vm.snackbar.color).toBe('error');
+    });
+
+    it('9. Suplencias Temporales: renderiza chips de modalidad/estado y permite revertir suplencia temporal activa', async () => {
+      api.post.mockResolvedValueOnce({
+        data: { message: 'Suplencia temporal finalizada exitosamente' }
+      });
+
+      const wrapper = mount(CoordinatorView, {
+        global: { plugins: [pinia], stubs: completeStubs }
+      });
+      await flushPromises();
+
+      wrapper.vm.viewTab = 'substitutions';
+      await wrapper.vm.$nextTick();
+
+      // Fila 1: Definitiva / Finalizada
+      const row1 = wrapper.find('[data-testid="row-substitution-sub-1"]');
+      expect(row1.find('[data-testid="chip-modality-definitiva"]').exists()).toBe(true);
+      expect(row1.find('[data-testid="chip-modality-temporal"]').exists()).toBe(false);
+      expect(row1.find('[data-testid="btn-revert-substitution"]').exists()).toBe(false);
+
+      // Fila 2: Temporal / Activa
+      const row2 = wrapper.find('[data-testid="row-substitution-sub-2"]');
+      const tempChip = row2.find('[data-testid="chip-modality-temporal"]');
+      expect(tempChip.exists()).toBe(true);
+      expect(tempChip.text()).toContain('Temporal hasta 15/12/2026');
+
+      const statusChip = row2.find('[data-testid="chip-substitution-status"]');
+      expect(statusChip.exists()).toBe(true);
+      expect(statusChip.text()).toBe('activa');
+
+      // Botón "Finalizar Suplencia"
+      const revertBtn = row2.find('[data-testid="btn-revert-substitution"]');
+      expect(revertBtn.exists()).toBe(true);
+      expect(revertBtn.text()).toContain('Finalizar Suplencia');
+
+      // Clic en finalizar suplencia
+      await revertBtn.trigger('click');
+      await flushPromises();
+
+      // Verificar invocación de API de reversión
+      expect(api.post).toHaveBeenCalledWith('/schedules/substitutions/sub-2/revert');
+      expect(wrapper.vm.snackbar.show).toBe(true);
+      expect(wrapper.vm.snackbar.color).toBe('success');
+      expect(wrapper.vm.snackbar.text).toBe('Suplencia temporal finalizada exitosamente');
     });
   });
 });

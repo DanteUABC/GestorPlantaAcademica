@@ -222,6 +222,23 @@
                       <v-icon icon="mdi-account-tie" size="x-small"></v-icon>
                       {{ item.teacher_name }}
                     </div>
+
+                    <!-- Insignia de Suplencia Temporal Activa -->
+                    <div v-if="item.active_substitution" class="my-1">
+                      <v-chip
+                        size="x-small"
+                        color="amber-darken-3"
+                        variant="flat"
+                        class="font-weight-bold"
+                        data-testid="badge-temp-substitution"
+                      >
+                        <v-icon icon="mdi-account-clock" size="x-small" class="mr-1"></v-icon>
+                        Suplente temporal hasta {{ formatDisplayDate(item.active_substitution.end_date) }}
+                      </v-chip>
+                      <div class="text-caption text-amber-darken-4 font-weight-medium">
+                        {{ item.active_substitution.substitute_teacher_name }} (Titular: {{ item.active_substitution.original_teacher_name }})
+                      </div>
+                    </div>
                     <div class="text-caption text-grey-darken-2">
                       <v-icon icon="mdi-door" size="x-small"></v-icon>
                       {{ item.classroom_name }}
@@ -270,6 +287,21 @@
                   <div class="d-flex align-center">
                     <v-icon icon="mdi-account-tie" size="small" class="mr-1 text-grey"></v-icon>
                     <span>{{ sch.teacher_name }}</span>
+                  </div>
+                  <div v-if="sch.active_substitution" class="mt-1">
+                    <v-chip
+                      size="x-small"
+                      color="amber-darken-3"
+                      variant="flat"
+                      class="font-weight-bold"
+                      data-testid="badge-temp-substitution"
+                    >
+                      <v-icon icon="mdi-account-clock" size="x-small" class="mr-1"></v-icon>
+                      Suplente temporal hasta {{ formatDisplayDate(sch.active_substitution.end_date) }}
+                    </v-chip>
+                    <div class="text-caption text-amber-darken-4 font-weight-medium">
+                      Suplente: {{ sch.active_substitution.substitute_teacher_name }}
+                    </div>
                   </div>
                 </td>
                 <td>
@@ -672,7 +704,7 @@
                 :key="sub.id || sub.substitution_id"
                 :data-testid="'row-substitution-' + (sub.id || sub.substitution_id)"
               >
-                <!-- 1) Fecha Efectiva -->
+                <!-- 1) Fecha Efectiva y Modalidad -->
                 <td>
                   <v-chip
                     size="small"
@@ -684,6 +716,35 @@
                     <v-icon icon="mdi-calendar" size="x-small" class="mr-1"></v-icon>
                     {{ sub.effective_date }}
                   </v-chip>
+                  <div class="mt-1 d-flex flex-wrap align-center ga-1">
+                    <v-chip
+                      v-if="sub.substitution_type === 'temporal'"
+                      size="x-small"
+                      color="amber-darken-3"
+                      variant="flat"
+                      class="font-weight-bold"
+                      data-testid="chip-modality-temporal"
+                    >
+                      Temporal hasta {{ formatDisplayDate(sub.end_date) }}
+                    </v-chip>
+                    <v-chip
+                      v-else
+                      size="x-small"
+                      color="blue-grey"
+                      variant="tonal"
+                      data-testid="chip-modality-definitiva"
+                    >
+                      Definitiva
+                    </v-chip>
+                    <v-chip
+                      size="x-small"
+                      :color="sub.status === 'activa' ? 'success' : (sub.status === 'cancelada' ? 'error' : 'grey')"
+                      variant="tonal"
+                      data-testid="chip-substitution-status"
+                    >
+                      {{ sub.status || 'finalizada' }}
+                    </v-chip>
+                  </div>
                 </td>
 
                 <!-- 2) Materia y Grupo -->
@@ -723,10 +784,24 @@
                   </div>
                 </td>
 
-                <!-- 6) Fecha de Registro -->
+                <!-- 6) Fecha de Registro y Acciones -->
                 <td class="text-right">
                   <div class="text-caption text-grey-darken-1" data-testid="cell-created-at">
                     {{ formatDateTime(sub.created_at) }}
+                  </div>
+                  <div v-if="sub.substitution_type === 'temporal' && sub.status === 'activa'" class="mt-2">
+                    <v-btn
+                      size="x-small"
+                      color="error"
+                      variant="tonal"
+                      prepend-icon="mdi-backup-restore"
+                      :loading="revertingSubId === (sub.id || sub.substitution_id)"
+                      :disabled="!isOnline"
+                      data-testid="btn-revert-substitution"
+                      @click="handleRevertSubstitution(sub)"
+                    >
+                      Finalizar Suplencia
+                    </v-btn>
                   </div>
                 </td>
               </tr>
@@ -2185,6 +2260,53 @@ function formatDateTime(val) {
     });
   } catch {
     return String(val);
+  }
+}
+
+function formatDisplayDate(val) {
+  if (!val) return '';
+  const dateStr = typeof val === 'string' ? val.split('T')[0] : '';
+  if (dateStr && dateStr.includes('-')) {
+    const [y, m, d] = dateStr.split('-');
+    return `${d}/${m}/${y}`;
+  }
+  try {
+    const d = new Date(val);
+    if (isNaN(d.getTime())) return String(val);
+    const day = String(d.getDate()).padStart(2, '0');
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const year = d.getFullYear();
+    return `${day}/${month}/${year}`;
+  } catch {
+    return String(val);
+  }
+}
+
+const revertingSubId = ref(null);
+
+async function handleRevertSubstitution(sub) {
+  if (!isOnline.value) return;
+  const subId = sub.id || sub.substitution_id;
+  if (!subId) return;
+
+  revertingSubId.value = subId;
+  try {
+    const res = await api.post(`/schedules/substitutions/${subId}/revert`);
+    snackbar.value = {
+      show: true,
+      text: res.data?.message || 'Suplencia temporal finalizada exitosamente',
+      color: 'success'
+    };
+    await Promise.all([loadData(), loadSubstitutions()]);
+  } catch (err) {
+    console.error('Error al finalizar suplencia:', err);
+    snackbar.value = {
+      show: true,
+      text: err.response?.data?.error || err.response?.data?.message || err.message || 'Error al finalizar la suplencia temporal',
+      color: 'error'
+    };
+  } finally {
+    revertingSubId.value = null;
   }
 }
 
