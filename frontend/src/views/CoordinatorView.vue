@@ -54,9 +54,17 @@
         </v-card>
       </v-col>
       <v-col cols="12" sm="6" md="3">
-        <v-card elevation="2" rounded="lg" class="pa-4 border-s-lg border-secondary">
+        <v-card
+          elevation="2"
+          rounded="lg"
+          hover
+          class="pa-4 border-s-lg border-secondary cursor-pointer"
+          style="cursor: pointer;"
+          data-testid="metric-card-teachers"
+          @click="viewTab = 'teachers'"
+        >
           <div class="text-caption text-grey font-weight-bold">DOCENTES EN PLANTILLA</div>
-          <div class="text-h4 font-weight-bold text-secondary mt-1">{{ teachers.length }}</div>
+          <div class="text-h4 font-weight-bold text-secondary mt-1" data-testid="metric-card-teachers-count">{{ activeTeachersCount }}</div>
           <div class="text-caption text-grey mt-1">Profesores registrados</div>
         </v-card>
       </v-col>
@@ -1777,12 +1785,15 @@
 
 <script setup>
 import { ref, computed, onMounted, watch, nextTick } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
 import { useAuthStore } from '../stores/authStore';
 import api from '../api/client';
 import ExcelScheduleUploader from '../components/ExcelScheduleUploader.vue';
 import ClassroomCatalogTab from '../components/ClassroomCatalogTab.vue';
 import ScheduleTransferModal from '../components/ScheduleTransferModal.vue';
 
+const route = useRoute();
+const router = useRouter();
 const authStore = useAuthStore();
 
 const emit = defineEmits([
@@ -2196,11 +2207,33 @@ function handleTransferSuccess(payload) {
   loadData();
 }
 
+const validQueryTabs = ['classrooms', 'subjects', 'teachers', 'grid', 'list', 'upload'];
 const viewTab = ref('grid');
 const schedules = ref([]);
 const subjects = ref([]);
 const teachers = ref([]);
 const classrooms = ref([]);
+
+const activeTeachersCount = computed(() => {
+  return teachers.value.filter(t => !t.estatus || String(t.estatus).toLowerCase() === 'activo').length;
+});
+
+watch(viewTab, (newTab) => {
+  if (router && typeof router.replace === 'function') {
+    router.replace({
+      query: { ...(route?.query || {}), tab: newTab }
+    });
+  }
+});
+
+watch(
+  () => route?.query?.tab,
+  (newQueryTab) => {
+    if (newQueryTab && validQueryTabs.includes(String(newQueryTab)) && viewTab.value !== String(newQueryTab)) {
+      viewTab.value = String(newQueryTab);
+    }
+  }
+);
 
 const formatClassroomOption = (cr) => {
   if (!cr) return '';
@@ -2548,6 +2581,10 @@ const snackbar = ref({
 });
 
 onMounted(async () => {
+  const initialTab = route?.query?.tab;
+  if (initialTab && validQueryTabs.includes(String(initialTab))) {
+    viewTab.value = String(initialTab);
+  }
   await loadData();
 });
 
