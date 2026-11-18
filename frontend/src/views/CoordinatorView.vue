@@ -37,9 +37,17 @@
           size="large"
           prepend-icon="mdi-plus"
           class="text-none font-weight-bold elevation-2"
+          :disabled="!isOnline"
+          data-testid="btn-open-create-schedule"
           @click="openCreateDialog"
         >
           Armar Nuevo Horario
+          <v-tooltip
+            activator="parent"
+            location="top"
+            :disabled="isOnline"
+            text="Se requiere conexión a internet para persistir cambios."
+          />
         </v-btn>
       </div>
     </div>
@@ -194,16 +202,33 @@
                           color="primary"
                           title="Reasignar docente / Suplente"
                           data-testid="btn-transfer-grid"
+                          :disabled="!isOnline"
                           @click="openTransferModal(item)"
-                        ></v-btn>
+                        >
+                          <v-tooltip
+                            activator="parent"
+                            location="top"
+                            :disabled="isOnline"
+                            text="Se requiere conexión a internet para persistir cambios."
+                          />
+                        </v-btn>
                         <v-btn
                           icon="mdi-delete-outline"
                           size="x-small"
                           variant="text"
                           color="error"
                           title="Eliminar Horario"
+                          data-testid="btn-delete-schedule-grid"
+                          :disabled="!isOnline"
                           @click="handleDeleteSchedule(item.id)"
-                        ></v-btn>
+                        >
+                          <v-tooltip
+                            activator="parent"
+                            location="top"
+                            :disabled="isOnline"
+                            text="Se requiere conexión a internet para persistir cambios."
+                          />
+                        </v-btn>
                       </div>
                     </div>
 
@@ -287,9 +312,16 @@
                     prepend-icon="mdi-account-switch"
                     class="text-none mr-1"
                     data-testid="btn-transfer-list"
+                    :disabled="!isOnline"
                     @click="openTransferModal(sch)"
                   >
                     Reasignar
+                    <v-tooltip
+                      activator="parent"
+                      location="top"
+                      :disabled="isOnline"
+                      text="Se requiere conexión a internet para persistir cambios."
+                    />
                   </v-btn>
                   <v-btn
                     color="error"
@@ -297,9 +329,17 @@
                     size="small"
                     prepend-icon="mdi-delete"
                     class="text-none"
+                    data-testid="btn-delete-schedule-list"
+                    :disabled="!isOnline"
                     @click="handleDeleteSchedule(sch.id)"
                   >
                     Eliminar
+                    <v-tooltip
+                      activator="parent"
+                      location="top"
+                      :disabled="isOnline"
+                      text="Se requiere conexión a internet para persistir cambios."
+                    />
                   </v-btn>
                 </td>
               </tr>
@@ -341,9 +381,16 @@
               elevation="1"
               class="text-none font-weight-bold"
               data-testid="btn-new-subject"
+              :disabled="!isOnline"
               @click="openNewSubjectDialog"
             >
               Nueva Materia
+              <v-tooltip
+                activator="parent"
+                location="top"
+                :disabled="isOnline"
+                text="Se requiere conexión a internet para persistir cambios."
+              />
             </v-btn>
           </div>
 
@@ -388,10 +435,17 @@
                     icon="mdi-pencil"
                     class="mr-1"
                     data-testid="btn-edit-subject"
+                    :disabled="!isOnline"
                     @click="openEditSubjectDialog(sub)"
                     title="Editar Materia"
                   >
                     <v-icon icon="mdi-pencil"></v-icon>
+                    <v-tooltip
+                      activator="parent"
+                      location="top"
+                      :disabled="isOnline"
+                      text="Se requiere conexión a internet para persistir cambios."
+                    />
                   </v-btn>
                   <v-btn
                     variant="text"
@@ -399,10 +453,17 @@
                     color="error"
                     icon="mdi-delete"
                     data-testid="btn-delete-subject"
+                    :disabled="!isOnline"
                     @click="confirmDeleteSubject(sub)"
                     title="Eliminar Materia"
                   >
                     <v-icon icon="mdi-delete"></v-icon>
+                    <v-tooltip
+                      activator="parent"
+                      location="top"
+                      :disabled="isOnline"
+                      text="Se requiere conexión a internet para persistir cambios."
+                    />
                   </v-btn>
                 </td>
               </tr>
@@ -852,10 +913,16 @@
                 color="primary"
                 class="text-none font-weight-bold"
                 :loading="submitting"
-                :disabled="!isFormValid || isCapacityExceeded || isLabMismatch || submitting || !!overlappingRestriction"
+                :disabled="!isOnline || !isFormValid || isCapacityExceeded || isLabMismatch || submitting || !!overlappingRestriction"
                 data-testid="btn-save-schedule"
               >
                 Guardar Horario
+                <v-tooltip
+                  activator="parent"
+                  location="top"
+                  :disabled="isOnline"
+                  text="Se requiere conexión a internet para persistir cambios."
+                />
               </v-btn>
             </div>
           </v-form>
@@ -1165,9 +1232,16 @@
                 color="primary"
                 class="text-none font-weight-bold"
                 :loading="savingSubject"
+                :disabled="!isOnline || savingSubject"
                 data-testid="btn-save-subject"
               >
                 {{ isEditingSubject ? 'Actualizar Materia' : 'Guardar Materia' }}
+                <v-tooltip
+                  activator="parent"
+                  location="top"
+                  :disabled="isOnline"
+                  text="Se requiere conexión a internet para persistir cambios."
+                />
               </v-btn>
             </div>
           </v-form>
@@ -1216,10 +1290,17 @@
             variant="flat"
             class="text-none font-weight-bold"
             :loading="deletingSubject"
+            :disabled="!isOnline || deletingSubject"
             data-testid="btn-confirm-delete-subject"
             @click="executeDeleteSubject"
           >
             Eliminar
+            <v-tooltip
+              activator="parent"
+              location="top"
+              :disabled="isOnline"
+              text="Se requiere conexión a internet para persistir cambios."
+            />
           </v-btn>
         </v-card-actions>
       </v-card>
@@ -1361,9 +1442,16 @@
                     class="text-none font-weight-bold"
                     prepend-icon="mdi-email-remove-outline"
                     data-testid="btn-revoke-email-trigger"
+                    :disabled="!isOnline"
                     @click="openRevokeEmailConfirmation"
                   >
                     Dar de baja correo
+                    <v-tooltip
+                      activator="parent"
+                      location="top"
+                      :disabled="isOnline"
+                      text="Se requiere conexión a internet para persistir cambios."
+                    />
                   </v-btn>
                 </template>
                 <template v-else>
@@ -1703,10 +1791,17 @@
             variant="flat"
             class="text-none font-weight-bold"
             :loading="deletingRestriction"
+            :disabled="!isOnline || deletingRestriction"
             data-testid="btn-confirm-delete-restriction"
             @click="confirmDeleteRestriction"
           >
             Eliminar Bloqueo
+            <v-tooltip
+              activator="parent"
+              location="top"
+              :disabled="isOnline"
+              text="Se requiere conexión a internet para persistir cambios."
+            />
           </v-btn>
         </v-card-actions>
       </v-card>
@@ -1774,10 +1869,17 @@
             variant="flat"
             class="text-none font-weight-bold"
             :loading="revokingEmail"
+            :disabled="!isOnline || revokingEmail"
             data-testid="btn-confirm-revoke-email"
             @click="executeRevokeEmail"
           >
             Confirmar Baja
+            <v-tooltip
+              activator="parent"
+              location="top"
+              :disabled="isOnline"
+              text="Se requiere conexión a internet para persistir cambios."
+            />
           </v-btn>
         </v-card-actions>
       </v-card>
@@ -1805,10 +1907,19 @@ import api from '../api/client';
 import ExcelScheduleUploader from '../components/ExcelScheduleUploader.vue';
 import ClassroomCatalogTab from '../components/ClassroomCatalogTab.vue';
 import ScheduleTransferModal from '../components/ScheduleTransferModal.vue';
+import { useNetworkStatus } from '../composables/useNetworkStatus';
 
 const route = useRoute();
 const router = useRouter();
 const authStore = useAuthStore();
+const { isOnline, syncTrigger } = useNetworkStatus();
+
+// Refresco automático de consultas al recuperar la conexión a internet
+watch(syncTrigger, async () => {
+  if (isOnline.value) {
+    await loadData();
+  }
+});
 
 const emit = defineEmits([
   'teacher-selected',
@@ -2109,6 +2220,7 @@ function closeDeleteRestrictionConfirm() {
 }
 
 async function confirmDeleteRestriction() {
+  if (!isOnline.value) return;
   if (!restrictionToDelete.value?.id) return;
   const deletedId = restrictionToDelete.value.id;
   try {
@@ -2136,6 +2248,7 @@ const revokeEmailError = ref('');
 const revokeEmailModalError = ref('');
 
 function openRevokeEmailConfirmation() {
+  if (!isOnline.value) return;
   revokeEmailError.value = '';
   revokeEmailModalError.value = '';
   revokeConfirmDialog.value = true;
@@ -2148,6 +2261,7 @@ function closeRevokeConfirmDialog() {
 }
 
 async function executeRevokeEmail() {
+  if (!isOnline.value) return;
   if (!selectedTeacherDetail.value?.id) return;
   try {
     revokingEmail.value = true;
@@ -2703,6 +2817,7 @@ function filterTeachers(valueText, queryText, item) {
 }
 
 function openCreateDialog() {
+  if (!isOnline.value) return;
   conflictError.value = '';
   isFormValid.value = true;
   selectedTeacherRestrictions.value = [];
@@ -2721,6 +2836,7 @@ function openCreateDialog() {
 }
 
 async function submitSchedule() {
+  if (!isOnline.value) return;
   if (overlappingRestriction.value) {
     return;
   }
@@ -2755,6 +2871,7 @@ async function submitSchedule() {
 }
 
 async function handleDeleteSchedule(id) {
+  if (!isOnline.value) return;
   if (!confirm('¿Deseas eliminar este horario programado?')) return;
   try {
     await api.delete(`/schedules/${id}`);
@@ -2846,6 +2963,7 @@ const filteredSubjectsList = computed(() => {
 });
 
 function openNewSubjectDialog() {
+  if (!isOnline.value) return;
   isEditingSubject.value = false;
   subjectError.value = '';
   subjectForm.value = {
@@ -2858,6 +2976,7 @@ function openNewSubjectDialog() {
 }
 
 function openEditSubjectDialog(sub) {
+  if (!isOnline.value) return;
   isEditingSubject.value = true;
   subjectError.value = '';
   subjectForm.value = {
@@ -2881,6 +3000,7 @@ function closeSubjectDialog() {
 }
 
 async function saveSubject() {
+  if (!isOnline.value) return;
   subjectError.value = '';
   const code = String(subjectForm.value.code || '').trim().toUpperCase();
   const name = String(subjectForm.value.name || '').trim();
@@ -2967,6 +3087,7 @@ function closeDeleteSubjectDialog() {
 }
 
 async function executeDeleteSubject() {
+  if (!isOnline.value) return;
   if (!subjectToDelete.value) return;
   const target = subjectToDelete.value;
   deletingSubject.value = true;

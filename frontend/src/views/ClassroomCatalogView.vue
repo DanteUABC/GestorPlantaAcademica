@@ -29,9 +29,16 @@
           prepend-icon="mdi-plus"
           class="text-none font-weight-bold elevation-2"
           data-testid="btn-register-space"
+          :disabled="!isOnline"
           @click="openCreateModal"
         >
           Registrar Espacio Físico
+          <v-tooltip
+            activator="parent"
+            location="top"
+            :disabled="isOnline"
+            text="Se requiere conexión a internet para persistir cambios."
+          />
         </v-btn>
       </div>
     </div>
@@ -145,8 +152,16 @@
               color="primary"
               title="Editar espacio físico"
               data-testid="btn-edit-space"
+              :disabled="!isOnline"
               @click="openEditModal(item.raw || item)"
-            ></v-btn>
+            >
+              <v-tooltip
+                activator="parent"
+                location="top"
+                :disabled="isOnline"
+                text="Se requiere conexión a internet para persistir cambios."
+              />
+            </v-btn>
             <v-btn
               icon="mdi-delete"
               size="small"
@@ -154,8 +169,16 @@
               color="error"
               title="Eliminar espacio físico"
               data-testid="btn-delete-space"
+              :disabled="!isOnline"
               @click="deleteClassroom(item.raw || item)"
-            ></v-btn>
+            >
+              <v-tooltip
+                activator="parent"
+                location="top"
+                :disabled="isOnline"
+                text="Se requiere conexión a internet para persistir cambios."
+              />
+            </v-btn>
           </div>
         </template>
       </v-data-table>
@@ -267,9 +290,16 @@
                 color="primary"
                 class="text-none font-weight-bold"
                 :loading="saving"
+                :disabled="!isOnline || saving"
                 data-testid="btn-save-space"
               >
                 {{ isEditing ? 'Guardar Cambios' : 'Registrar Espacio' }}
+                <v-tooltip
+                  activator="parent"
+                  location="top"
+                  :disabled="isOnline"
+                  text="Se requiere conexión a internet para persistir cambios."
+                />
               </v-btn>
             </div>
           </v-form>
@@ -285,12 +315,21 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed, onMounted, watch } from 'vue';
 import { useAuthStore } from '../stores/authStore';
 import api from '../api/client';
+import { useNetworkStatus } from '../composables/useNetworkStatus';
 
 const emit = defineEmits(['updated']);
 const authStore = useAuthStore();
+const { isOnline, syncTrigger } = useNetworkStatus();
+
+// Refrescar automáticamente al recuperar la conexión
+watch(syncTrigger, async () => {
+  if (isOnline.value) {
+    await fetchClassrooms();
+  }
+});
 
 const classrooms = ref([]);
 const loading = ref(false);
@@ -420,6 +459,7 @@ async function loadClassrooms() {
 }
 
 function openCreateModal() {
+  if (!isOnline.value) return;
   isEditing.value = false;
   editingId.value = null;
   formError.value = '';
@@ -433,6 +473,7 @@ function openCreateModal() {
 }
 
 function openEditModal(item) {
+  if (!isOnline.value) return;
   isEditing.value = true;
   editingId.value = item.id;
   formError.value = '';
@@ -451,6 +492,7 @@ function closeModal() {
 }
 
 async function saveClassroom() {
+  if (!isOnline.value) return;
   formError.value = '';
 
   // Validación estricta de capacidad > 0
@@ -513,6 +555,7 @@ async function saveClassroom() {
 }
 
 async function deleteClassroom(item) {
+  if (!isOnline.value) return;
   if (!item || !item.id) return;
   errorMessage.value = '';
   try {

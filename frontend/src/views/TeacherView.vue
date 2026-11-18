@@ -116,14 +116,23 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed, onMounted, watch } from 'vue';
 import { useAuthStore } from '../stores/authStore';
 import api from '../api/client';
+import { useNetworkStatus } from '../composables/useNetworkStatus';
 
 const authStore = useAuthStore();
+const { isOnline, syncTrigger } = useNetworkStatus();
 const schedules = ref([]);
 const loading = ref(false);
 const daysOfWeek = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
+
+// Auto-refresco en segundo plano al reconectar
+watch(syncTrigger, async () => {
+  if (isOnline.value) {
+    await loadData();
+  }
+});
 
 const totalWeeklyHours = computed(() => {
   return schedules.value.reduce((sum, s) => {
