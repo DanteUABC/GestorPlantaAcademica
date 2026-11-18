@@ -54,9 +54,17 @@
         </v-card>
       </v-col>
       <v-col cols="12" sm="6" md="3">
-        <v-card elevation="2" rounded="lg" class="pa-4 border-s-lg border-secondary">
+        <v-card
+          elevation="2"
+          rounded="lg"
+          hover
+          class="pa-4 border-s-lg border-secondary cursor-pointer"
+          style="cursor: pointer;"
+          data-testid="metric-card-teachers"
+          @click="viewTab = 'teachers'"
+        >
           <div class="text-caption text-grey font-weight-bold">DOCENTES EN PLANTILLA</div>
-          <div class="text-h4 font-weight-bold text-secondary mt-1">{{ teachers.length }}</div>
+          <div class="text-h4 font-weight-bold text-secondary mt-1" data-testid="metric-card-teachers-count">{{ activeTeachersCount }}</div>
           <div class="text-caption text-grey mt-1">Profesores registrados</div>
         </v-card>
       </v-col>
@@ -103,7 +111,7 @@
           <v-tab value="upload" prepend-icon="mdi-file-excel-box">Carga Masiva Excel</v-tab>
           <v-tab value="subjects" prepend-icon="mdi-book-education-outline" data-testid="tab-subjects-catalog">Catálogo de Materias</v-tab>
           <v-tab value="teachers" prepend-icon="mdi-account-tie-outline" data-testid="tab-teachers-catalog">Catálogo de Docentes</v-tab>
-          <v-tab value="classrooms" to="/classrooms" prepend-icon="mdi-office-building-cog-outline" data-testid="tab-classroom-catalog">Catálogo de Aulas</v-tab>
+          <v-tab value="classrooms" prepend-icon="mdi-office-building-cog-outline" data-testid="tab-classroom-catalog" @click="viewTab = 'classrooms'">Catálogo de Aulas</v-tab>
           <v-tab to="/analytics" prepend-icon="mdi-chart-box-outline">Analítica Operativa</v-tab>
         </v-tabs>
         <div class="d-flex align-center ga-3 my-2">
@@ -308,8 +316,8 @@
           <ExcelScheduleUploader @upload-success="handleUploadSuccess" />
         </div>
         <!-- TAB 4: CATÁLOGO DE AULAS -->
-        <div v-if="viewTab === 'classrooms'" class="pa-2">
-          <ClassroomCatalogView @updated="loadData" />
+        <div v-if="viewTab === 'classrooms'" class="pa-2" data-testid="classrooms-catalog-tab-content">
+          <ClassroomCatalogTab @updated="loadData" />
         </div>
         <!-- TAB 5: CATÁLOGO DE MATERIAS -->
         <div v-if="viewTab === 'subjects'" class="pa-2" data-testid="subjects-catalog-tab-content">
@@ -1791,12 +1799,15 @@
 
 <script setup>
 import { ref, computed, onMounted, watch, nextTick } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
 import { useAuthStore } from '../stores/authStore';
 import api from '../api/client';
 import ExcelScheduleUploader from '../components/ExcelScheduleUploader.vue';
-import ClassroomCatalogView from './ClassroomCatalogView.vue';
+import ClassroomCatalogTab from '../components/ClassroomCatalogTab.vue';
 import ScheduleTransferModal from '../components/ScheduleTransferModal.vue';
 
+const route = useRoute();
+const router = useRouter();
 const authStore = useAuthStore();
 
 const emit = defineEmits([
@@ -2210,11 +2221,33 @@ function handleTransferSuccess(payload) {
   loadData();
 }
 
+const validQueryTabs = ['classrooms', 'subjects', 'teachers', 'grid', 'list', 'upload'];
 const viewTab = ref('grid');
 const schedules = ref([]);
 const subjects = ref([]);
 const teachers = ref([]);
 const classrooms = ref([]);
+
+const activeTeachersCount = computed(() => {
+  return teachers.value.filter(t => !t.estatus || String(t.estatus).toLowerCase() === 'activo').length;
+});
+
+watch(viewTab, (newTab) => {
+  if (router && typeof router.replace === 'function') {
+    router.replace({
+      query: { ...(route?.query || {}), tab: newTab }
+    });
+  }
+});
+
+watch(
+  () => route?.query?.tab,
+  (newQueryTab) => {
+    if (newQueryTab && validQueryTabs.includes(String(newQueryTab)) && viewTab.value !== String(newQueryTab)) {
+      viewTab.value = String(newQueryTab);
+    }
+  }
+);
 
 const formatClassroomOption = (cr) => {
   if (!cr) return '';
@@ -2614,6 +2647,10 @@ const snackbar = ref({
 });
 
 onMounted(async () => {
+  const initialTab = route?.query?.tab;
+  if (initialTab && validQueryTabs.includes(String(initialTab))) {
+    viewTab.value = String(initialTab);
+  }
   await loadData();
 });
 

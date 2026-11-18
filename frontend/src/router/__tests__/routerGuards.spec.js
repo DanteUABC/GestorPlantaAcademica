@@ -109,7 +109,7 @@ describe('Vue Router - Navigation Guards', () => {
         expect(router.currentRoute.value.path).toBe('/unauthorized');
     });
 
-    it('debe permitir el acceso a /classrooms a un coordinador autenticado', async () => {
+    it('debe redirigir transparentemente /classrooms hacia /coordinator?tab=classrooms para un coordinador autenticado', async () => {
         const store = useAuthStore();
         store.accessToken = 'dummy-token';
         store.userRole = 'role-coord';
@@ -117,6 +117,19 @@ describe('Vue Router - Navigation Guards', () => {
         await router.push('/classrooms');
         await router.isReady();
 
-        expect(router.currentRoute.value.path).toBe('/classrooms');
+        expect(router.currentRoute.value.path).toBe('/coordinator');
+        expect(router.currentRoute.value.query.tab).toBe('classrooms');
+    });
+
+    it('debe redirigir a /unauthorized si un profesor intenta acceder a /classrooms', async () => {
+        const store = useAuthStore();
+        store.accessToken = 'dummy-token';
+        store.userRole = 'role-teacher';
+
+        await router.push('/teacher');
+        await router.push('/classrooms');
+        await router.isReady();
+
+        expect(router.currentRoute.value.path).toBe('/unauthorized');
     });
 });

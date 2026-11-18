@@ -6,6 +6,26 @@ import api from '../../api/client';
 
 config.global.renderStubDefaultSlot = true;
 
+const { mockRouter, routeState } = vi.hoisted(() => ({
+  mockRouter: {
+    replace: vi.fn()
+  },
+  routeState: {
+    current: null
+  }
+}));
+
+vi.mock('vue-router', async (importOriginal) => {
+  const actual = await importOriginal();
+  const { reactive } = await import('vue');
+  routeState.current = reactive({ query: {} });
+  return {
+    ...actual,
+    useRoute: () => routeState.current,
+    useRouter: () => mockRouter
+  };
+});
+
 vi.mock('../../api/client', () => ({
   default: {
     get: vi.fn((url) => {
@@ -43,6 +63,7 @@ const VSelectStub = {
 describe('CoordinatorView.vue - Búsqueda de Maestro, Materia y Altas Rápidas Inline', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    routeState.current.query = {};
   });
 
   function getWrapper() {
@@ -80,18 +101,30 @@ describe('CoordinatorView.vue - Búsqueda de Maestro, Materia y Altas Rápidas I
           'v-divider': true,
           'v-progress-linear': true,
           'ExcelScheduleUploader': true,
-          'ClassroomCatalogView': true
+          'ClassroomCatalogTab': true
         }
       }
     });
   }
 
-  it('debe incluir la pestaña "Catálogo de Aulas" enlazada a la nueva vista (/classrooms)', () => {
+  it('debe incluir la pestaña "Catálogo de Aulas" integrada en CoordinatorView sin navegar fuera de /coordinator', async () => {
     const wrapper = getWrapper();
+    await flushPromises();
+
     const catalogTab = wrapper.find('[data-testid="tab-classroom-catalog"]');
     expect(catalogTab.exists()).toBe(true);
     expect(catalogTab.text()).toContain('Catálogo de Aulas');
-    expect(catalogTab.attributes('to')).toBe('/classrooms');
+    expect(catalogTab.attributes('to')).toBeUndefined();
+
+    expect(wrapper.find('[data-testid="classrooms-catalog-tab-content"]').exists()).toBe(false);
+
+    await catalogTab.trigger('click');
+    await wrapper.vm.$nextTick();
+
+    expect(wrapper.vm.viewTab).toBe('classrooms');
+    const tabContent = wrapper.find('[data-testid="classrooms-catalog-tab-content"]');
+    expect(tabContent.exists()).toBe(true);
+    expect(tabContent.findComponent({ name: 'ClassroomCatalogTab' }).exists() || tabContent.find('classroom-catalog-tab-stub').exists()).toBe(true);
   });
 
   it('debe contener componentes v-autocomplete para la búsqueda de Materia y Maestro con sus placeholders e iconos de lupa', () => {
@@ -323,6 +356,72 @@ describe('CoordinatorView.vue - Búsqueda de Maestro, Materia y Altas Rápidas I
       expect(wrapper.vm.createDialog).toBe(true);
       expect(wrapper.vm.newSchedule.subject_id).toBe('sub-2');
       expect(wrapper.vm.newSchedule.teacher_id).toBe('t-1');
+    });
+  });
+
+  describe('Sincronización de pestañas con query ?tab= y tarjeta DOCENTES EN PLANTILLA', () => {
+    it('inicializa viewTab desde route.query.tab al montar (classrooms, subjects, teachers)', async () => {
+      for (const tabName of ['classrooms', 'subjects', 'teachers']) {
+        routeState.current.query = { tab: tabName };
+        const wrapper = getWrapper();
+        await flushPromises();
+
+        expect(wrapper.vm.viewTab).toBe(tabName);
+      }
+    });
+
+    it('sincroniza la URL mediante router.replace al cambiar viewTab y responde a cambios en route.query.tab', async () => {
+      routeState.current.query = { foo: 'bar' };
+      const wrapper = getWrapper();
+      await flushPromises();
+
+      mockRouter.replace.mockClear();
+      wrapper.vm.viewTab = 'subjects';
+      await wrapper.vm.$nextTick();
+
+      expect(mockRouter.replace).toHaveBeenCalledWith({
+        query: { foo: 'bar', tab: 'subjects' }
+      });
+
+      // Simular navegación Atrás/Adelante del navegador actualizando route.query.tab
+      routeState.current.query = { foo: 'bar', tab: 'classrooms' };
+      await wrapper.vm.$nextTick();
+
+      expect(wrapper.vm.viewTab).toBe('classrooms');
+      expect(wrapper.find('[data-testid="classrooms-catalog-tab-content"]').exists()).toBe(true);
+    });
+
+    it('activa viewTab = "teachers" al hacer clic en la tarjeta DOCENTES EN PLANTILLA y contabiliza solo docentes activos', async () => {
+      const originalImpl = api.get.getMockImplementation();
+      api.get.mockImplementation((url) => {
+        if (url.includes('/teachers')) {
+          return Promise.resolve({
+            data: [
+              { id: 't-1', name: 'Elena Salgado', email: 'elena@itc.edu', estatus: 'activo' },
+              { id: 't-2', name: 'Carlos Vega', email: 'carlos@itc.edu', estatus: 'inactivo' },
+              { id: 't-3', name: 'Lucía Mora', email: 'lucia@itc.edu' }
+            ]
+          });
+        }
+        return originalImpl(url);
+      });
+
+      try {
+        const wrapper = getWrapper();
+        await flushPromises();
+
+        const teachersCard = wrapper.find('[data-testid="metric-card-teachers"]');
+        expect(teachersCard.exists()).toBe(true);
+        expect(wrapper.find('[data-testid="metric-card-teachers-count"]').text()).toBe('2');
+
+        await teachersCard.trigger('click');
+        await wrapper.vm.$nextTick();
+
+        expect(wrapper.vm.viewTab).toBe('teachers');
+        expect(wrapper.find('[data-testid="teachers-catalog-tab-content"]').exists()).toBe(true);
+      } finally {
+        api.get.mockImplementation(originalImpl);
+      }
     });
   });
 });

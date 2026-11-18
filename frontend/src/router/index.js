@@ -6,7 +6,6 @@ import TeacherView from '../views/TeacherView.vue';
 import UnauthorizedView from '../views/UnauthorizedView.vue';
 import ExternalRegisterView from '../views/ExternalRegisterView.vue';
 import AnalyticsDashboardView from '../views/AnalyticsDashboardView.vue';
-import ClassroomCatalogView from '../views/ClassroomCatalogView.vue';
 
 const routes = [
   { path: '/login', name: 'Login', component: LoginView },
@@ -20,7 +19,7 @@ const routes = [
   { 
     path: '/classrooms', 
     name: 'ClassroomCatalog', 
-    component: ClassroomCatalogView,
+    redirect: { path: '/coordinator', query: { tab: 'classrooms' } },
     meta: { requiresAuth: true, allowedRoles: ['Coordinador', 'Administrador', 'role-coord', 'role-admin'] }
   },
   { 
