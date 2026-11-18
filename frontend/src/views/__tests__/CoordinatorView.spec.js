@@ -3,8 +3,13 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import CoordinatorView from '../CoordinatorView.vue';
 import { createPinia } from 'pinia';
 import api from '../../api/client';
+import { generateOfficialSchedulePdf } from '../../utils/schedulePdfGenerator';
 
 config.global.renderStubDefaultSlot = true;
+
+vi.mock('../../utils/schedulePdfGenerator', () => ({
+  generateOfficialSchedulePdf: vi.fn()
+}));
 
 const { mockRouter, routeState } = vi.hoisted(() => ({
   mockRouter: {
@@ -80,7 +85,8 @@ describe('CoordinatorView.vue - Búsqueda de Maestro, Materia y Altas Rápidas I
           'v-col': true,
           'v-icon': true,
           'v-btn': {
-            props: ['icon', 'color', 'size'],
+            props: ['icon', 'color', 'size', 'loading'],
+            emits: ['click'],
             template: '<button @click="$emit(\'click\', $event)"><slot /></button>'
           },
           'v-alert': true,
@@ -419,6 +425,100 @@ describe('CoordinatorView.vue - Búsqueda de Maestro, Materia y Altas Rápidas I
 
         expect(wrapper.vm.viewTab).toBe('teachers');
         expect(wrapper.find('[data-testid="teachers-catalog-tab-content"]').exists()).toBe(true);
+      } finally {
+        api.get.mockImplementation(originalImpl);
+      }
+    });
+  });
+
+  describe('Exportación Oficial de Horarios a PDF (Task 4.1)', () => {
+    it('invoca generateOfficialSchedulePdf al hacer clic en el botón de exportación con los horarios filtrados e institución', async () => {
+      const originalImpl = api.get.getMockImplementation();
+      const mockSchedules = [
+        {
+          id: 'sch-1',
+          teacher_id: 't-1',
+          teacher_name: 'Elena Salgado',
+          subject_code: 'MAT-101',
+          subject_name: 'Cálculo Diferencial',
+          classroom_name: 'Aula A-101',
+          group_code: 'G1',
+          day_of_week: 'Lunes',
+          start_time: '08:00',
+          end_time: '10:00'
+        },
+        {
+          id: 'sch-2',
+          teacher_id: 't-2',
+          teacher_name: 'Carlos Vega',
+          subject_code: 'INF-201',
+          subject_name: 'Programación Web',
+          classroom_name: 'Aula A-101',
+          group_code: 'G2',
+          day_of_week: 'Martes',
+          start_time: '10:00',
+          end_time: '12:00'
+        }
+      ];
+
+      api.get.mockImplementation((url) => {
+        if (url.includes('/schedules/coordinator')) {
+          return Promise.resolve({ data: mockSchedules });
+        }
+        return originalImpl(url);
+      });
+
+      try {
+        const wrapper = getWrapper();
+        await flushPromises();
+
+        wrapper.vm.selectedTeacherFilter = 't-1';
+        await wrapper.vm.$nextTick();
+
+        const exportBtn = wrapper.find('[data-testid="btn-export-schedule-pdf"]');
+        expect(exportBtn.exists()).toBe(true);
+
+        await exportBtn.trigger('click');
+
+        expect(generateOfficialSchedulePdf).toHaveBeenCalledTimes(1);
+        expect(generateOfficialSchedulePdf).toHaveBeenCalledWith({
+          schedules: [mockSchedules[0]],
+          tenantName: 'Institución Activa',
+          teacherName: 'Elena Salgado',
+          period: '2026-2'
+        });
+      } finally {
+        api.get.mockImplementation(originalImpl);
+      }
+    });
+  });
+
+  describe('Exportación de Sábana de Horarios a Excel (Task 4.2)', () => {
+    it('invoca GET /schedules/export-excel con responseType blob al hacer clic en "Descargar Sábana Excel"', async () => {
+      const originalImpl = api.get.getMockImplementation();
+      api.get.mockImplementation((url, configArg) => {
+        if (url === '/schedules/export-excel') {
+          return Promise.resolve({ data: new Blob(['xlsx-mock']) });
+        }
+        return originalImpl(url, configArg);
+      });
+
+      try {
+        const wrapper = getWrapper();
+        await flushPromises();
+
+        const excelBtn = wrapper.find('[data-testid="btn-export-schedule-excel"]');
+        expect(excelBtn.exists()).toBe(true);
+
+        await excelBtn.trigger('click');
+        await flushPromises();
+
+        expect(api.get).toHaveBeenCalledWith('/schedules/export-excel', {
+          responseType: 'blob'
+        });
+        expect(wrapper.vm.exportingExcel).toBe(false);
+        expect(wrapper.vm.snackbar.show).toBe(true);
+        expect(wrapper.vm.snackbar.color).toBe('success');
       } finally {
         api.get.mockImplementation(originalImpl);
       }
