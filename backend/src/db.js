@@ -101,10 +101,13 @@ async function initDatabase() {
       provider_id VARCHAR(255),
       horas_contratadas INTEGER DEFAULT 25,
       estatus VARCHAR(20) DEFAULT 'activo',
+      min_weekly_hours INT DEFAULT 0 NOT NULL,
+      max_weekly_hours INT DEFAULT 40 NOT NULL,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE,
       FOREIGN KEY (role_id) REFERENCES roles(id),
-      UNIQUE(tenant_id, email)
+      UNIQUE(tenant_id, email),
+      CONSTRAINT chk_users_weekly_hours CHECK (max_weekly_hours >= min_weekly_hours AND min_weekly_hours >= 0)
     );
 
     -- Subjects (Materias, scoped by tenant_id)
@@ -221,6 +224,18 @@ async function initDatabase() {
       ALTER TABLE users ADD COLUMN IF NOT EXISTS identificador VARCHAR(100);
       ALTER TABLE users ADD COLUMN IF NOT EXISTS provider VARCHAR(50);
       ALTER TABLE users ADD COLUMN IF NOT EXISTS provider_id VARCHAR(255);
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS min_weekly_hours INT DEFAULT 0 NOT NULL;
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS max_weekly_hours INT DEFAULT 40 NOT NULL;
+      UPDATE users SET min_weekly_hours = 0 WHERE min_weekly_hours IS NULL;
+      UPDATE users SET max_weekly_hours = 40 WHERE max_weekly_hours IS NULL;
+
+      DO $$
+      BEGIN
+        IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = 'users'::regclass AND conname = 'chk_users_weekly_hours') THEN
+          ALTER TABLE users ADD CONSTRAINT chk_users_weekly_hours
+          CHECK (max_weekly_hours >= min_weekly_hours AND min_weekly_hours >= 0);
+        END IF;
+      END $$;
       UPDATE users SET email = REPLACE(email, '@itc.edu', '@pavilion.com') WHERE email LIKE '%@itc.edu';
       ALTER TABLE users ADD COLUMN IF NOT EXISTS email_revocado_at TIMESTAMP;
       ALTER TABLE users ADD COLUMN IF NOT EXISTS token_version INTEGER DEFAULT 1;
@@ -267,7 +282,9 @@ async function initDatabase() {
           provider_id,
           horas_contratadas,
           estatus,
-          created_at
+          created_at,
+          min_weekly_hours,
+          max_weekly_hours
         FROM users;
 
       DROP VIEW IF EXISTS usuarios_roles CASCADE;

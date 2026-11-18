@@ -476,6 +476,9 @@ exports.getMe = async (req, res) => {
       `SELECT u.id, u.tenant_id, u.nombre, u.apellidos,
               TRIM(CONCAT(COALESCE(u.nombre, ''), ' ', COALESCE(u.apellidos, ''))) AS name,
               u.email, u.identificador, u.identificador AS identifier,
+              COALESCE(u.min_weekly_hours, 0)::int AS min_weekly_hours,
+              COALESCE(u.max_weekly_hours, 40)::int AS max_weekly_hours,
+              COALESCE(u.horas_contratadas, 25)::int AS horas_contratadas,
               COALESCE(r.nombre, r.name) as role_name, t.name as tenant_name
        FROM users u
        JOIN roles r ON u.role_id = r.id

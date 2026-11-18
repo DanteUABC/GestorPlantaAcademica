@@ -5,6 +5,34 @@ import pool, { initDatabase } from '../../src/db';
 describe('Migración DDL: Límite contractual de horas, estatus y desvinculación de email en tabla users', () => {
   beforeAll(async () => {
     await initDatabase();
+
+    // Asegurar registros base mínimos en BD de pruebas (cuando RUN_SEEDS=false o pruebas previas vaciaron users)
+    await pool.query(`
+      INSERT INTO tenants (id, name, slug) VALUES ('tenant-itc', 'Instituto Tecnológico Central', 'itc')
+      ON CONFLICT (id) DO NOTHING;
+    `);
+    await pool.query(`
+      INSERT INTO roles (id, name, nombre, description) VALUES ('role-teacher', 'Profesor', 'Profesor', 'Docente')
+      ON CONFLICT (id) DO NOTHING;
+    `);
+    await pool.query(`
+      INSERT INTO subjects (id, tenant_id, code, name, credits) VALUES ('sub-prog', 'tenant-itc', 'INF-201', 'Programación Orientada a Objetos', 6)
+      ON CONFLICT (id) DO NOTHING;
+    `);
+    await pool.query(`
+      INSERT INTO classrooms (id, tenant_id, name, building, capacity, type) VALUES ('cr-lab1', 'tenant-itc', 'Laboratorio de Cómputo 1', 'Edificio Tecnologías', 25, 'Laboratorio de Cómputo')
+      ON CONFLICT (id) DO NOTHING;
+    `);
+    await pool.query(`
+      INSERT INTO users (id, tenant_id, nombre, apellidos, email, role_id, identificador, horas_contratadas, estatus, email_activo)
+      VALUES ('usr-prof-1', 'tenant-itc', 'Mtra. Elena', 'Salgado (Profesora)', 'elena.salgado@pavilion.com', 'role-teacher', 'M001', 25, 'activo', TRUE)
+      ON CONFLICT (id) DO UPDATE SET horas_contratadas = 25, estatus = 'activo', email_activo = TRUE, email = 'elena.salgado@pavilion.com';
+    `);
+    await pool.query(`
+      INSERT INTO schedules (id, tenant_id, subject_id, teacher_id, classroom_id, day_of_week, start_time, end_time, max_students)
+      VALUES ('sch-sample-1', 'tenant-itc', 'sub-prog', 'usr-prof-1', 'cr-lab1', 'Lunes', '08:00', '10:00', 25)
+      ON CONFLICT (id) DO NOTHING;
+    `);
   });
 
   describe('Criterios de Aceptación (Unidad con Mock)', () => {
@@ -235,9 +263,9 @@ describe('Migración DDL: Límite contractual de horas, estatus y desvinculació
       `);
     });
 
-    it('Criterio 8: La vista usuarios incluye horas_contratadas, estatus y email_activo', async () => {
+    it('Criterio 8: La vista usuarios incluye horas_contratadas, estatus, email_activo, min_weekly_hours y max_weekly_hours', async () => {
       const res = await pool.query(`
-        SELECT id, nombre, email_activo, horas_contratadas, estatus
+        SELECT id, nombre, email_activo, horas_contratadas, estatus, min_weekly_hours, max_weekly_hours
         FROM usuarios
         WHERE id = 'usr-prof-1'
       `);
@@ -247,6 +275,39 @@ describe('Migración DDL: Límite contractual de horas, estatus y desvinculació
       expect(row.horas_contratadas).toBe(25);
       expect(row.estatus).toBe('activo');
       expect(row.email_activo).toBe(true);
+      expect(row.min_weekly_hours).toBe(0);
+      expect(row.max_weekly_hours).toBe(40);
+    });
+
+    it('Criterio 9: La tabla users incluye min_weekly_hours (default 0), max_weekly_hours (default 40) y restricción CHECK chk_users_weekly_hours', async () => {
+      const cols = await pool.query(`
+        SELECT column_name, data_type, column_default
+        FROM information_schema.columns
+        WHERE table_name = 'users' AND column_name IN ('min_weekly_hours', 'max_weekly_hours')
+        ORDER BY column_name ASC
+      `);
+
+      expect(cols.rows.length).toBe(2);
+      const maxCol = cols.rows.find(c => c.column_name === 'max_weekly_hours');
+      const minCol = cols.rows.find(c => c.column_name === 'min_weekly_hours');
+      expect(minCol.data_type).toBe('integer');
+      expect(minCol.column_default).toContain('0');
+      expect(maxCol.data_type).toBe('integer');
+      expect(maxCol.column_default).toContain('40');
+
+      const constraint = await pool.query(`
+        SELECT conname, pg_get_constraintdef(oid) AS def
+        FROM pg_constraint
+        WHERE conrelid = 'users'::regclass AND conname = 'chk_users_weekly_hours'
+      `);
+      expect(constraint.rows.length).toBe(1);
+      expect(constraint.rows[0].def).toMatch(/max_weekly_hours\s*>=\s*min_weekly_hours/i);
+
+      // Intentar violar la restricción CHECK (min_weekly_hours > max_weekly_hours)
+      await expect(pool.query(`
+        INSERT INTO users (id, tenant_id, nombre, apellidos, email, role_id, min_weekly_hours, max_weekly_hours)
+        VALUES ('usr-invalid-hours-1', 'tenant-itc', 'Invalid', 'Hours', 'invalid.hours@pavilion.com', 'role-teacher', 30, 10)
+      `)).rejects.toThrow();
     });
   });
 });

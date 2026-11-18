@@ -132,7 +132,9 @@ async function migrateUserSchema(poolOrClient) {
         provider_id,
         horas_contratadas,
         estatus,
-        created_at
+        created_at,
+        min_weekly_hours,
+        max_weekly_hours
       FROM users;
 
     CREATE OR REPLACE VIEW usuarios_roles AS 

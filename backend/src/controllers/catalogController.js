@@ -216,21 +216,34 @@ async function getTeachers(req, res) {
               u.email, u.email_activo, u.identificador, u.identificador AS identifier,
               COALESCE(u.horas_contratadas, 25)::int AS horas_contratadas,
               COALESCE(u.horas_contratadas, 25)::int AS max_hours,
+              COALESCE(u.min_weekly_hours, 0)::int AS min_weekly_hours,
+              COALESCE(u.max_weekly_hours, 40)::int AS max_weekly_hours,
               COALESCE(ROUND(SUM(EXTRACT(EPOCH FROM (s.end_time::time - s.start_time::time)) / 3600.0)::numeric, 2), 0)::float AS horas_asignadas,
+              COALESCE(ROUND(SUM(EXTRACT(EPOCH FROM (s.end_time::time - s.start_time::time)) / 3600.0)::numeric, 2), 0)::float AS assigned_hours,
               COALESCE(COUNT(DISTINCT s.group_code), 0)::int AS grupos_asignados_count,
               COALESCE(u.estatus, 'activo') AS estatus
        FROM users u
        JOIN roles r ON u.role_id = r.id
        LEFT JOIN schedules s ON s.teacher_id = u.id AND s.tenant_id = u.tenant_id
        WHERE u.tenant_id = ? AND (r.name = 'Profesor' OR r.nombre = 'Profesor')
-       GROUP BY u.id, u.nombre, u.apellidos, u.email, u.email_activo, u.identificador, u.horas_contratadas, u.estatus
+       GROUP BY u.id, u.nombre, u.apellidos, u.email, u.email_activo, u.identificador, u.horas_contratadas, u.min_weekly_hours, u.max_weekly_hours, u.estatus
        ORDER BY name ASC`,
       [tenantId]
     );
 
     const formatted = (teachers || []).map(t => {
       const horasContratadas = Number(t.horas_contratadas) || 25;
-      const horasAsignadas = Number(t.horas_asignadas) || 0;
+      const rawMin = t.min_weekly_hours !== undefined && t.min_weekly_hours !== null
+        ? parseInt(t.min_weekly_hours, 10)
+        : 0;
+      const rawMax = t.max_weekly_hours !== undefined && t.max_weekly_hours !== null
+        ? parseInt(t.max_weekly_hours, 10)
+        : 40;
+      const maxHours = (t.max_hours !== undefined && t.max_hours !== null)
+        ? Number(t.max_hours)
+        : horasContratadas;
+      const rawAssigned = t.assigned_hours ?? t.horas_asignadas ?? 0;
+      const assignedHours = Number(Number(rawAssigned || 0).toFixed(2));
       const gruposCount = Number(t.grupos_asignados_count) || 0;
       return {
         id: t.id,
@@ -242,8 +255,11 @@ async function getTeachers(req, res) {
         identificador: t.identificador,
         identifier: t.identifier || t.identificador,
         horas_contratadas: horasContratadas,
-        max_hours: horasContratadas,
-        horas_asignadas: horasAsignadas,
+        max_hours: maxHours,
+        min_weekly_hours: Number.isNaN(rawMin) ? 0 : rawMin,
+        max_weekly_hours: Number.isNaN(rawMax) ? 40 : rawMax,
+        horas_asignadas: assignedHours,
+        assigned_hours: assignedHours,
         grupos_asignados_count: gruposCount,
         estatus: t.estatus || 'activo'
       };

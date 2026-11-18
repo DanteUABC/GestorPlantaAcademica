@@ -9,9 +9,9 @@ describe('Flujo de Registro Externo y Generación de ID', () => {
     let validToken;
 
     beforeEach(async () => {
-        // Limpiar la BD antes de cada prueba para tener un entorno predecible
-        await pool.query('DELETE FROM usuarios_roles');
-        await pool.query('DELETE FROM usuarios');
+        // Limpiar únicamente el usuario de prueba para no borrar datos semilla u otros tests
+        await pool.query('DELETE FROM usuarios_roles WHERE usuario_id IN (SELECT id FROM usuarios WHERE email = $1)', [testEmail]);
+        await pool.query('DELETE FROM usuarios WHERE email = $1', [testEmail]);
         
         validToken = jwt.sign(
             { email: testEmail, provider: 'google', provider_id: 'integration-123' }, 
@@ -21,8 +21,8 @@ describe('Flujo de Registro Externo y Generación de ID', () => {
     });
 
     afterAll(async () => {
-        await pool.query('DELETE FROM usuarios_roles');
-        await pool.query('DELETE FROM usuarios');
+        await pool.query('DELETE FROM usuarios_roles WHERE usuario_id IN (SELECT id FROM usuarios WHERE email = $1)', [testEmail]);
+        await pool.query('DELETE FROM usuarios WHERE email = $1', [testEmail]);
     });
 
     it('Criterio 1: Debe generar el ID, asociarlo al usuario y guardarlo exitosamente', async () => {

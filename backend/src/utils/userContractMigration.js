@@ -107,6 +107,24 @@ async function migrateUserContractAndStatus(clientOrPool) {
        OR role_id IN (SELECT id FROM roles WHERE name = 'Profesor' OR nombre = 'Profesor');
   `);
 
+  // 1b. Columnas min_weekly_hours y max_weekly_hours con restricción CHECK
+  await execute(`
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS min_weekly_hours INT DEFAULT 0 NOT NULL;
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS max_weekly_hours INT DEFAULT 40 NOT NULL;
+    UPDATE users SET min_weekly_hours = 0 WHERE min_weekly_hours IS NULL;
+    UPDATE users SET max_weekly_hours = 40 WHERE max_weekly_hours IS NULL;
+  `);
+  await execute(`
+    DO $$
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint WHERE conrelid = 'users'::regclass AND conname = 'chk_users_weekly_hours'
+      ) THEN
+        ALTER TABLE users ADD CONSTRAINT chk_users_weekly_hours CHECK (max_weekly_hours >= min_weekly_hours AND min_weekly_hours >= 0);
+      END IF;
+    END $$;
+  `);
+
   // 5. Actualizar la vista SQL de compatibilidad usuarios incorporando las nuevas columnas
   await execute(`
     DROP VIEW IF EXISTS usuarios CASCADE;
@@ -129,7 +147,9 @@ async function migrateUserContractAndStatus(clientOrPool) {
         provider_id,
         horas_contratadas,
         estatus,
-        created_at
+        created_at,
+        min_weekly_hours,
+        max_weekly_hours
       FROM users;
   `);
 
