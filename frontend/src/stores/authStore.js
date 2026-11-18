@@ -99,6 +99,9 @@ export const useAuthStore = defineStore('auth', {
         return false;
       }
     },
+    async checkAuth() {
+      return await this.silentRefresh();
+    },
     async login(email, password, tenant_id = null) {
       this.loading = true;
       this.error = null;
@@ -157,17 +160,6 @@ export const useAuthStore = defineStore('auth', {
         throw this.error;
       } finally {
         this.loading = false;
-      }
-    },
-    async quickLogin(roleName) {
-      const demoAccounts = {
-        coordinador: { email: 'coordinador@pavilion.com', password: 'demo123', tenant_id: 'tenant-itc' },
-        profesor: { email: 'elena.salgado@pavilion.com', password: 'demo123', tenant_id: 'tenant-itc' }
-      };
-
-      const creds = demoAccounts[roleName.toLowerCase()];
-      if (creds) {
-        return await this.login(creds.email, creds.password, creds.tenant_id);
       }
     },
     async logout() {

@@ -125,4 +125,90 @@ describe('authStore - Gestión de Sesión', () => {
         expect(store.getHomeRoute('Coordinador')).toBe('/coordinator');
         expect(store.getHomeRoute('Desconocido')).toBe('/unauthorized');
     });
+
+    it('debe manejar error HTTP 401 (Unauthorized) sin guardar tokens ni persistir sesion', async () => {
+        const store = useAuthStore();
+        api.post.mockRejectedValueOnce({
+            response: {
+                status: 401,
+                data: { error: 'Credenciales invalidas' }
+            }
+        });
+
+        await expect(store.login('docente@pavilion.com', 'badpwd', 'tenant-itc'))
+            .rejects.toEqual('Credenciales invalidas');
+
+        expect(store.isAuthenticated).toBe(false);
+        expect(store.accessToken).toBeNull();
+        expect(store.user).toBeNull();
+        expect(store.error).toBe('Credenciales invalidas');
+        expect(localStorage.getItem('token')).toBeNull();
+        expect(localStorage.getItem('user')).toBeNull();
+    });
+
+    it('debe manejar error HTTP 403 (Forbidden) denegando acceso sin persistir sesion', async () => {
+        const store = useAuthStore();
+        api.post.mockRejectedValueOnce({
+            response: {
+                status: 403,
+                data: { error: 'Acceso no autorizado para esta institucion' }
+            }
+        });
+
+        await expect(store.login('coordinador@pavilion.com', 'password123', 'tenant-prohibido'))
+            .rejects.toEqual('Acceso no autorizado para esta institucion');
+
+        expect(store.isAuthenticated).toBe(false);
+        expect(store.accessToken).toBeNull();
+        expect(store.user).toBeNull();
+        expect(store.error).toBe('Acceso no autorizado para esta institucion');
+        expect(localStorage.getItem('token')).toBeNull();
+        expect(localStorage.getItem('user')).toBeNull();
+    });
+
+    it('debe limpiar la sesion ante token expirado o invalido durante silentRefresh / checkAuth', async () => {
+        const store = useAuthStore();
+        vi.spyOn(router, 'push').mockImplementation(() => Promise.resolve());
+
+        // Sesion activa previa
+        store.accessToken = 'expired-token';
+        store.tenantId = 'tenant-itc';
+        store.userRole = 'Profesor';
+        store.user = { id: 'usr-1', name: 'Docente Test' };
+        localStorage.setItem('token', 'expired-token');
+        localStorage.setItem('tenant_id', 'tenant-itc');
+        localStorage.setItem('user', JSON.stringify(store.user));
+        expect(store.isAuthenticated).toBe(true);
+
+        // Mockear falla 401 en silentRefresh
+        api.post.mockRejectedValueOnce({
+            response: {
+                status: 401,
+                data: { error: 'Token expirado' }
+            }
+        });
+
+        const refreshOk = await store.silentRefresh();
+
+        expect(refreshOk).toBe(false);
+        expect(store.isAuthenticated).toBe(false);
+        expect(store.accessToken).toBeNull();
+        expect(store.user).toBeNull();
+        expect(store.tenantId).toBeNull();
+        expect(localStorage.getItem('token')).toBeNull();
+        expect(localStorage.getItem('user')).toBeNull();
+        expect(localStorage.getItem('tenant_id')).toBeNull();
+
+        // Validar comportamiento homologo mediante checkAuth
+        store.accessToken = 'expired-token-2';
+        expect(store.isAuthenticated).toBe(true);
+
+        api.post.mockRejectedValueOnce(new Error('Sesion invalida'));
+        const checkOk = await store.checkAuth();
+
+        expect(checkOk).toBe(false);
+        expect(store.isAuthenticated).toBe(false);
+        expect(store.accessToken).toBeNull();
+        expect(store.user).toBeNull();
+    });
 });
